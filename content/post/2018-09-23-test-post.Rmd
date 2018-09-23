@@ -21,7 +21,7 @@ knitr::opts_chunk$set(echo = TRUE)
 
 2.  Table
 
-    Table Header    |   Second Header
+    Column 1        |   Column 2
     -------------   |   -------------
     Table Cell      |   Cell 2
     Cell 3          |   Cell 4 
