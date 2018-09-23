@@ -49,7 +49,7 @@ ignoreFiles = ["\\.Rmd$", "\\.Rmarkdown$", "_files$", "_cache$"]
     url = "/contact/"
 
 [social]
-  # Link your social networking accouns to the side menu
+  # Link your social networking accounts to the side menu
   # by entering your username or ID.
   twitter = "*"
   facebook = "*"

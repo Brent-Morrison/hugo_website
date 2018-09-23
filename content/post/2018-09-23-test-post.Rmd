@@ -4,7 +4,7 @@ author: Brent Morrison
 date: '2018-09-23'
 slug: test-post
 categories: []
-tags: []
+tags: [test]
 description: ''
 topics: []
 ---
@@ -13,16 +13,16 @@ topics: []
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-## This is a test post
+# This is a test post
 
-# Here are some bullet points:  
+## Here are some bullet points:  
   
 1. Bullet point 
 
 2.  Table
 
-    Table Header  | Second Header
-    ------------- | -------------
-    Table Cell    | Cell 2
-    Cell 3        | Cell 4 
+    Table Header    |   Second Header
+    -------------   |   -------------
+    Table Cell      |   Cell 2
+    Cell 3          |   Cell 4 
 
