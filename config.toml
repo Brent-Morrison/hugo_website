@@ -6,6 +6,7 @@ author = "Yoshiharu Yamashita"
 copyright = "&copy; 2016. All rights reserved."
 canonifyurls = true
 paginate = 10
+ignoreFiles = ["\\.Rmd$", "\\.Rmarkdown$", "_files$", "_cache$"]
 
 [indexes]
   tag = "tags"
