@@ -15,9 +15,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## This is a test post
 
-This series of posts will look at a number of macroeconomic and financial variables ("indicators") and assess their effectiveness in forecasting returns of the S&P500 index.  Initial selection of the indicators will be assessed a number of ways:  
+# Here are some bullet points:  
   
-1. A visual inspection of the indicator plotted against the S&P500 index.  This will help to eyeball any immediate relationships calling for further investigation. 
+1. Bullet point 
 
-2.  A density plot of the subsequent monthly returns of the S&P500 index conditioned on binary derivation of the indicator in question.  The indicator will be discretised into bins based on its 6 monthly change (increase or decrease) and on its level by tercile (high, medium or low).  each of these six bins will be assigned to dummy variable, and the subsequent monthly returns ploted as a density histogram for periods when the dummy is triggered and all other periods.
+2.  Table
+
+    Table Header  | Second Header
+    ------------- | -------------
+    Table Cell    | Cell 2
+    Cell 3        | Cell 4 
 
