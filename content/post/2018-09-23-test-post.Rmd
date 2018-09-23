@@ -21,8 +21,8 @@ knitr::opts_chunk$set(echo = TRUE)
 
 2.  Table
 
-    Column 1        |   Column 2
-    -------------   |   -------------
-    Table Cell      |   Cell 2
-    Cell 3          |   Cell 4 
+    Column 1                |       Column 2
+    -----------------       |       -----------------
+    Cell 1                  |       Cell 2
+    Cell 3                  |       Cell 4 
 
