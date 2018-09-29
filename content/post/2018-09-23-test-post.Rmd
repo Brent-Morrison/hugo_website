@@ -3,7 +3,7 @@ title: Test post 1
 author: Brent Morrison
 date: '2018-09-23'
 slug: test-post
-categories: []
+categories: [post]
 tags: [test]
 description: ''
 topics: []
@@ -43,7 +43,7 @@ topics: []
       It seems the kableExtra table doesn't publish the same format as that detailed in the R viewer.
       Here is the image for the above table saved from the viewer.
       
-      ![](Rplot.png)
+      ![](/Rplot.png)
 
 
 
