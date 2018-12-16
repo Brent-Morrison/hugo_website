@@ -1,0 +1,195 @@
+---
+title: Financial data aggregator
+author: Brent Morrison
+date: '2018-10-21'
+slug: financial-data-aggregator
+categories:
+  - Data
+tags: []
+description: ''
+topics: []
+---
+
+
+
+<p>This post is going to document an R script that will download and aggregate various financial and economic time series. This data will be used in future posts to perform modelling and analyse.</p>
+<div id="packages-required-and-download-parameters" class="section level3">
+<h3>Packages required and download parameters</h3>
+<p>Load the required packages.</p>
+<pre class="r"><code>library(&quot;DescTools&quot;)
+library(&quot;tidyquant&quot;)
+library(&quot;timetk&quot;)
+library(&quot;broom&quot;)
+library(&quot;tibbletime&quot;)</code></pre>
+<p>We then set parameters specifying the data to be downloaded.</p>
+<pre class="r"><code># Parameters for binary market indicator
+lb = 6                  #  Lookback period
+pc = 0.2                #  Percent drawdown for binary market in/out indicator cutoff
+fr = -0.025             #  Forward return for binary market in/out indicator cutoff
+
+# Start and end dates
+s.date = as.Date(&quot;1945-01-01&quot;)
+e.date = as.Date(&quot;2018-11-01&quot;)
+
+# Time series to download, Quandl and FRED
+qndlm = c(&quot;NAHB/NWFHMI.1&quot;,
+          &quot;ISM/MAN_NEWORDERS.5&quot;)
+fredw = c(&quot;IC4WSA&quot;)
+fredm = c(&quot;AAA&quot;,       #    Moody&#39;s Seasoned Aaa Corporate Bond Yield
+          &quot;ACDGNO&quot;,    #    Value of Manufacturers&#39; New Orders for Consumer Goods: Consumer
+          &quot;AHETPI&quot;,    #    Average Hourly Earnings of Production and Nonsupervisory Employees:
+          &quot;AWHMAN&quot;,    #    Average Weekly Hours of Production and Nonsupervisory Employees:
+          &quot;BAA&quot;,       #    Moody&#39;s Seasoned Baa Corporate Bond Yield
+          &quot;BOGMBASE&quot;,  #    Monetary Base; Total
+          &quot;CFNAIDIFF&quot;, #    Chicago Fed National Activity Index: Diffusion Index
+          &quot;CPIAUCSL&quot;,  #    Consumer Price Index for All Urban Consumers: All Items
+          &quot;CPILFESL&quot;,  #    Consumer Price Index for All Urban Consumers: All Items Less Food and
+          &quot;FEDFUNDS&quot;,  #    Effective Federal Funds Rate
+          &quot;GS10&quot;,      #    10-Year Treasury Constant Maturity Rate
+          &quot;GS2&quot;,       #    2-Year Treasury Constant Maturity Rate
+          &quot;INDPRO&quot;,    #    Industrial Production Index
+          &quot;ISRATIO&quot;,   #    Total Business: Inventories to Sales Ratio
+          &quot;KCFSI&quot;,     #    Kansas City Financial Stress Index
+          &quot;M2SL&quot;,      #    M2 Money Stock
+          &quot;NEWORDER&quot;,  #    Manufacturers&#39; New Orders: Nondefense Capital Goods Excluding Aircraft
+          &quot;PERMIT&quot;,    #    New Private Housing Units Authorized by Building Permits
+          &quot;TB3MS&quot;,     #    3-Month Treasury Bill: Secondary Market Rate
+          &quot;TWEXMMTH&quot;,  #  Trade Weighted U.S. Dollar Index: Major Currencies
+          &quot;UNRATE&quot;,    #    Civilian Unemployment Rate
+          &quot;LOANS&quot;)     #    Loans and Leases in Bank Credit, All Commercial Banks </code></pre>
+</div>
+<div id="downloading-external-data" class="section level3">
+<h3>Downloading external data</h3>
+<p>This section of code documents the actual capture of data from various sources. We are using the “tq_get” function from the tidyquant package.</p>
+<pre class="r"><code># Get S&amp;P500 data
+sp_5   &lt;-  tq_get(&quot;^GSPC&quot;,get = &quot;stock.prices&quot;,from = s.date)
+
+# Get fred monthly economic data
+econ.m1 &lt;- tq_get(fredm, get = &quot;economic.data&quot;,from = s.date)
+
+# Spread fred monthly data to column, fill missing values
+econ.m2 &lt;- spread(econ.m1, symbol, price) %&gt;% 
+  fill(ACDGNO, CFNAIDIFF, ISRATIO)
+
+# Get fred weekly economic data
+econ.w1 &lt;- tq_get(fredw, get = &quot;economic.data&quot;, from = s.date)
+
+# Convert weekly data to monthly frequency
+econ.m3 &lt;- econ.w1 %&gt;% 
+  rename(&quot;IC4WSA&quot; = &quot;price&quot;) %&gt;%
+  group_by(month=floor_date(date, &quot;month&quot;)) %&gt;% 
+  summarize(IC4WSA = last(IC4WSA)) %&gt;%
+  rename(&quot;date&quot; = &quot;month&quot;) 
+
+# Get quandl monthy data
+econ.m4 &lt;- tq_get(qndlm,get=&quot;quandl&quot;,from=&quot;1985-03-01&quot;) %&gt;%
+  mutate(price = if_else(is.na(value), index, value), 
+         date = floor_date(if_else(is.na(date), month, date),&quot;month&quot;)) %&gt;%
+  select(symbol, date, price) %&gt;% spread(symbol, price) %&gt;%
+  rename(HMI = &quot;NAHB/NWFHMI.1&quot;, NEWORD = &quot;ISM/MAN_NEWORDERS.5&quot;) 
+
+# Get Shiller download: http://www.econ.yale.edu/~shiller/data.htm
+econ.m5 &lt;- read.zoo(file = &quot;C:/Users/brent/Documents/R/R_import/Shiller.csv&quot;,
+                    FUN = as.Date, header = T, sep = &quot;,&quot;, 
+                    format = &quot;%d/%m/%Y&quot;, index.column = 1)
+econ.m5 &lt;- tk_tbl(econ.m5, rename_index = &quot;date&quot;) %&gt;% 
+  mutate(date = floor_date(date, &quot;month&quot;))
+
+# Join all data (except stock data)
+econ.m  &lt;- full_join(econ.m2, econ.m3, by = &quot;date&quot;)
+econ.m  &lt;- full_join(econ.m, econ.m4, by = &quot;date&quot;)
+econ.m  &lt;- full_join(econ.m, econ.m5, by = &quot;date&quot;) %&gt;% 
+  filter(date &gt;= s.date &amp; date &lt;= e.date)</code></pre>
+<p>Note that the Shiller cyclically adjusted price earnings data is manually saved down and loaded via a read csv function.</p>
+<p>Let’s see what our data looks like at this stage.</p>
+<pre class="r"><code>str(econ.m)</code></pre>
+<pre><code>## Classes &#39;tbl_df&#39;, &#39;tbl&#39; and &#39;data.frame&#39;:    887 obs. of  36 variables:
+##  $ date     : Date, format: &quot;1945-01-01&quot; &quot;1945-02-01&quot; ...
+##  $ AAA      : num  2.69 2.65 2.62 2.61 2.62 2.61 2.6 2.61 2.62 2.62 ...
+##  $ ACDGNO   : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ AHETPI   : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ AWHMAN   : num  45.5 45.5 45.3 45 44.3 44.8 44.7 40.9 41.5 41.5 ...
+##  $ BAA      : num  3.46 3.41 3.38 3.36 3.32 3.29 3.26 3.26 3.24 3.2 ...
+##  $ BOGMBASE : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ CFNAIDIFF: num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ CPIAUCSL : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ CPILFESL : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ FEDFUNDS : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ GS10     : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ GS2      : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ INDPRO   : num  16.8 16.8 16.7 16.4 15.9 ...
+##  $ ISRATIO  : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ KCFSI    : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ LOANS    : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ M2SL     : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ NEWORDER : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ PERMIT   : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ TB3MS    : num  0.38 0.38 0.38 0.38 0.38 0.38 0.38 0.38 0.38 0.38 ...
+##  $ TWEXMMTH : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ UNRATE   : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ IC4WSA   : int  NA NA NA NA NA NA NA NA NA NA ...
+##  $ NEWORD   : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ HMI      : num  NA NA NA NA NA NA NA NA NA NA ...
+##  $ P        : num  13.5 13.9 13.9 14.3 14.8 ...
+##  $ D        : num  0.643 0.647 0.65 0.65 0.65 ...
+##  $ E        : num  0.94 0.95 0.96 0.973 0.987 ...
+##  $ CPI      : num  17.8 17.8 17.8 17.8 17.9 18.1 18.1 18.1 18.1 18.1 ...
+##  $ Fraction : num  1945 1945 1945 1945 1945 ...
+##  $ Rate.GS10: num  2.37 2.35 2.34 2.33 2.31 ...
+##  $ Price    : num  189 196 196 201 207 ...
+##  $ Dividend : num  9.03 9.08 9.13 9.13 9.08 ...
+##  $ Earnings : num  13.2 13.3 13.5 13.7 13.8 ...
+##  $ CAPE     : num  12 12.3 12.3 12.6 13 ...</code></pre>
+<p>Obviously not all times series start at the specified start date. Everything requested is there, however we have not joined the S&amp;P 500 index data as yet.</p>
+</div>
+<div id="stock-market-data" class="section level3">
+<h3>Stock market data</h3>
+<p>We now want to take the stock data (the S&amp;P 500), roll up from a daily to monthly periodicity, and create a number of rolling attributes</p>
+<pre class="r"><code># Create new attributes
+sp_5 &lt;- sp_5 %&gt;% 
+  
+  # Group to monthly periodicity and create monthly returns
+  group_by(month = floor_date(date, &quot;month&quot;)) %&gt;%
+  summarize(low = min(low), close = last(close), volume = sum(volume)) %&gt;%
+  rename(&quot;date&quot; = &quot;month&quot;) %&gt;% 
+  tq_mutate(select = close, mutate_fun = periodReturn, period = &quot;monthly&quot;, 
+            type = &quot;log&quot;, col_rename  = &quot;rtn_m&quot;) %&gt;%
+  
+  # Forward monthly return
+  mutate(fwd_rtn_m = lead(rtn_m, 1)) %&gt;% 
+  
+  # 6 monthly returns
+  tq_mutate(select = rtn_m, mutate_fun = rollapply, width = lb, FUN = sum, 
+            col_rename  = &quot;rtn_6m&quot;) %&gt;%
+  
+  # 6 monthly low watermark
+  tq_mutate(select = low, mutate_fun = rollapply, width = lb, FUN = min, 
+            col_rename  = &quot;min_6m&quot;) %&gt;%
+  
+  # 6 monthly max drawdown
+  mutate(dd_6m = -lag(log(close), n = lb) + log(min_6m)) %&gt;%
+  
+  # Binary flag, 1 = 6 monthly return less than specified and drawdown in
+  # in excess ofthat specified 
+  mutate(flag = ifelse(rtn_6m &lt; fr | dd_6m &lt; -pc , 1, 0)) %&gt;%
+  
+  # Lead binary flag by 6 months
+  mutate(y1 = lead(flag, lb)) %&gt;%
+  
+  # Indicator for when binary flag changes
+  mutate(diff_flag = c(NA, diff(y1)))</code></pre>
+<p>The attribute y1 is a binary indicator that looks forward over the next 6 months and return 1 if the maximum drawdown is greater than 20% or the return is less than 2.5% (these parameters can be changed as detailed above). This will be the independent or forecast variable for future analysis.</p>
+<p>If we can forecast this indicator we can stay out of the market during downturns or when returns are deemed insufficient.</p>
+<p>In order to visualise this indicator it is ideal to do so as a shading over a time series chart. In order to do that we need to convert the indicator into a series of start and end dates, the following code does just that.</p>
+<pre class="r"><code>sp_5s    &lt;-  sp_5 %&gt;% filter(diff_flag == 1) %&gt;% select(date) %&gt;% rename(start = date)
+sp_5e    &lt;-  sp_5 %&gt;% filter(diff_flag == -1) %&gt;% select(date) %&gt;% rename(end = date)
+short    &lt;-  min(count(sp_5s), count(sp_5e))
+sp_shade &lt;-  data.frame(head(sp_5s, short), head(sp_5e, short))</code></pre>
+<p>All data sets have now been created. Lastly these data sets are joined and saved down for future reference.</p>
+<pre class="r"><code># Join economic and stock return time series
+econ_fin_data &lt;- inner_join(econ.m, sp_5, by = &quot;date&quot;)
+# Save time series data and 
+saveRDS(econ_fin_data, file=&quot;econ_fin_data.Rda&quot;)
+saveRDS(sp_shade, file=&quot;sp_shade.Rda&quot;)</code></pre>
+<p>That’s it for now, next we will look at visualising these time series.</p>
+</div>
