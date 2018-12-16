@@ -1,0 +1,872 @@
+---
+title: Kable correction
+author: Brent Morrison
+date: '2018-12-16'
+slug: kable-tables
+categories:
+  - post
+tags:
+  - test
+description: ''
+topics: []
+---
+
+<script src="/rmarkdown-libs/kePrint/kePrint.js"></script>
+
+
+<p>Lets try and resolve the issue I reported <a href="https://brentmorrison.netlify.com/post/test-post/">here</a> . This code attempts to rectify the formatting issue by closing off the code chunk appropriately. I’ve also loaded the tidyverse packages as was done in this <a href="https://stackoverflow.com/questions/48409288/how-to-show-kable-kableextra-tables-in-r-markdown-notebook-not-just-in-the-knit?rq=1">stackoverflow</a> post.</p>
+<pre class="r"><code>  library(kableExtra)
+  library(tidyverse)
+  library(knitr)
+  dt &lt;- mtcars[1:15, 1:6]
+  kable(dt, format = &quot;html&quot;, align = &quot;c&quot;) %&gt;%
+    kable_styling(bootstrap_options = c(&quot;striped&quot;, &quot;hover&quot;), 
+                  full_width = T,
+                  position = &quot;left&quot;) %&gt;%
+    column_spec(1, width = &quot;10em&quot;) %&gt;% 
+    column_spec(2, width = &quot;7em&quot;) %&gt;% 
+    column_spec(3, width = &quot;7em&quot;) %&gt;% 
+    column_spec(4, width = &quot;7em&quot;) %&gt;% 
+    column_spec(5, width = &quot;7em&quot;) %&gt;% 
+    column_spec(6, width = &quot;7em&quot;) %&gt;% 
+    footnote(general = &quot;Here is a general comments of the table. &quot;,
+             number = c(&quot;Footnote 1; &quot;, &quot;Footnote 2; &quot;),
+             alphabet = c(&quot;Footnote A; &quot;, &quot;Footnote B; &quot;),
+             symbol = c(&quot;Footnote Symbol 1; &quot;, &quot;Footnote Symbol 2&quot;))</code></pre>
+<table class="table table-striped table-hover" style>
+<thead>
+<tr>
+<th style="text-align:left;">
+</th>
+<th style="text-align:center;">
+mpg
+</th>
+<th style="text-align:center;">
+cyl
+</th>
+<th style="text-align:center;">
+disp
+</th>
+<th style="text-align:center;">
+hp
+</th>
+<th style="text-align:center;">
+drat
+</th>
+<th style="text-align:center;">
+wt
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Mazda RX4
+</td>
+<td style="text-align:center;width: 7em; ">
+21.0
+</td>
+<td style="text-align:center;width: 7em; ">
+6
+</td>
+<td style="text-align:center;width: 7em; ">
+160.0
+</td>
+<td style="text-align:center;width: 7em; ">
+110
+</td>
+<td style="text-align:center;width: 7em; ">
+3.90
+</td>
+<td style="text-align:center;">
+2.620
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Mazda RX4 Wag
+</td>
+<td style="text-align:center;width: 7em; ">
+21.0
+</td>
+<td style="text-align:center;width: 7em; ">
+6
+</td>
+<td style="text-align:center;width: 7em; ">
+160.0
+</td>
+<td style="text-align:center;width: 7em; ">
+110
+</td>
+<td style="text-align:center;width: 7em; ">
+3.90
+</td>
+<td style="text-align:center;">
+2.875
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Datsun 710
+</td>
+<td style="text-align:center;width: 7em; ">
+22.8
+</td>
+<td style="text-align:center;width: 7em; ">
+4
+</td>
+<td style="text-align:center;width: 7em; ">
+108.0
+</td>
+<td style="text-align:center;width: 7em; ">
+93
+</td>
+<td style="text-align:center;width: 7em; ">
+3.85
+</td>
+<td style="text-align:center;">
+2.320
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Hornet 4 Drive
+</td>
+<td style="text-align:center;width: 7em; ">
+21.4
+</td>
+<td style="text-align:center;width: 7em; ">
+6
+</td>
+<td style="text-align:center;width: 7em; ">
+258.0
+</td>
+<td style="text-align:center;width: 7em; ">
+110
+</td>
+<td style="text-align:center;width: 7em; ">
+3.08
+</td>
+<td style="text-align:center;">
+3.215
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Hornet Sportabout
+</td>
+<td style="text-align:center;width: 7em; ">
+18.7
+</td>
+<td style="text-align:center;width: 7em; ">
+8
+</td>
+<td style="text-align:center;width: 7em; ">
+360.0
+</td>
+<td style="text-align:center;width: 7em; ">
+175
+</td>
+<td style="text-align:center;width: 7em; ">
+3.15
+</td>
+<td style="text-align:center;">
+3.440
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Valiant
+</td>
+<td style="text-align:center;width: 7em; ">
+18.1
+</td>
+<td style="text-align:center;width: 7em; ">
+6
+</td>
+<td style="text-align:center;width: 7em; ">
+225.0
+</td>
+<td style="text-align:center;width: 7em; ">
+105
+</td>
+<td style="text-align:center;width: 7em; ">
+2.76
+</td>
+<td style="text-align:center;">
+3.460
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Duster 360
+</td>
+<td style="text-align:center;width: 7em; ">
+14.3
+</td>
+<td style="text-align:center;width: 7em; ">
+8
+</td>
+<td style="text-align:center;width: 7em; ">
+360.0
+</td>
+<td style="text-align:center;width: 7em; ">
+245
+</td>
+<td style="text-align:center;width: 7em; ">
+3.21
+</td>
+<td style="text-align:center;">
+3.570
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Merc 240D
+</td>
+<td style="text-align:center;width: 7em; ">
+24.4
+</td>
+<td style="text-align:center;width: 7em; ">
+4
+</td>
+<td style="text-align:center;width: 7em; ">
+146.7
+</td>
+<td style="text-align:center;width: 7em; ">
+62
+</td>
+<td style="text-align:center;width: 7em; ">
+3.69
+</td>
+<td style="text-align:center;">
+3.190
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Merc 230
+</td>
+<td style="text-align:center;width: 7em; ">
+22.8
+</td>
+<td style="text-align:center;width: 7em; ">
+4
+</td>
+<td style="text-align:center;width: 7em; ">
+140.8
+</td>
+<td style="text-align:center;width: 7em; ">
+95
+</td>
+<td style="text-align:center;width: 7em; ">
+3.92
+</td>
+<td style="text-align:center;">
+3.150
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Merc 280
+</td>
+<td style="text-align:center;width: 7em; ">
+19.2
+</td>
+<td style="text-align:center;width: 7em; ">
+6
+</td>
+<td style="text-align:center;width: 7em; ">
+167.6
+</td>
+<td style="text-align:center;width: 7em; ">
+123
+</td>
+<td style="text-align:center;width: 7em; ">
+3.92
+</td>
+<td style="text-align:center;">
+3.440
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Merc 280C
+</td>
+<td style="text-align:center;width: 7em; ">
+17.8
+</td>
+<td style="text-align:center;width: 7em; ">
+6
+</td>
+<td style="text-align:center;width: 7em; ">
+167.6
+</td>
+<td style="text-align:center;width: 7em; ">
+123
+</td>
+<td style="text-align:center;width: 7em; ">
+3.92
+</td>
+<td style="text-align:center;">
+3.440
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Merc 450SE
+</td>
+<td style="text-align:center;width: 7em; ">
+16.4
+</td>
+<td style="text-align:center;width: 7em; ">
+8
+</td>
+<td style="text-align:center;width: 7em; ">
+275.8
+</td>
+<td style="text-align:center;width: 7em; ">
+180
+</td>
+<td style="text-align:center;width: 7em; ">
+3.07
+</td>
+<td style="text-align:center;">
+4.070
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Merc 450SL
+</td>
+<td style="text-align:center;width: 7em; ">
+17.3
+</td>
+<td style="text-align:center;width: 7em; ">
+8
+</td>
+<td style="text-align:center;width: 7em; ">
+275.8
+</td>
+<td style="text-align:center;width: 7em; ">
+180
+</td>
+<td style="text-align:center;width: 7em; ">
+3.07
+</td>
+<td style="text-align:center;">
+3.730
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Merc 450SLC
+</td>
+<td style="text-align:center;width: 7em; ">
+15.2
+</td>
+<td style="text-align:center;width: 7em; ">
+8
+</td>
+<td style="text-align:center;width: 7em; ">
+275.8
+</td>
+<td style="text-align:center;width: 7em; ">
+180
+</td>
+<td style="text-align:center;width: 7em; ">
+3.07
+</td>
+<td style="text-align:center;">
+3.780
+</td>
+</tr>
+<tr>
+<td style="text-align:left;width: 10em; ">
+Cadillac Fleetwood
+</td>
+<td style="text-align:center;width: 7em; ">
+10.4
+</td>
+<td style="text-align:center;width: 7em; ">
+8
+</td>
+<td style="text-align:center;width: 7em; ">
+472.0
+</td>
+<td style="text-align:center;width: 7em; ">
+205
+</td>
+<td style="text-align:center;width: 7em; ">
+2.93
+</td>
+<td style="text-align:center;">
+5.250
+</td>
+</tr>
+</tbody>
+<tfoot>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<span style="font-style: italic;">Note: </span>
+</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<sup></sup> Here is a general comments of the table.
+</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<sup>1</sup> Footnote 1;
+</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<sup>2</sup> Footnote 2;
+</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<sup>a</sup> Footnote A;
+</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<sup>b</sup> Footnote B;
+</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<sup>*</sup> Footnote Symbol 1;
+</td>
+</tr>
+<tr>
+<td style="padding: 0; border: 0;" colspan="100%">
+<sup>†</sup> Footnote Symbol 2
+</td>
+</tr>
+</tfoot>
+</table>
+<p>That does not have any impact.</p>
+<p>Let’s try something different.</p>
+<pre class="r"><code>kable(dt) %&gt;%
+  kable_styling(&quot;striped&quot;) %&gt;%
+  add_header_above(c(&quot; &quot; = 1, &quot;Group 1&quot; = 2, &quot;Group 2&quot; = 2, &quot;Group 3&quot; = 2))</code></pre>
+<table class="table table-striped" style="margin-left: auto; margin-right: auto;">
+<thead>
+<tr>
+<th style="border-bottom:hidden" colspan="1">
+</th>
+<th style="border-bottom:hidden; padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="2">
+<div style="border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+Group 1
+</div>
+</th>
+<th style="border-bottom:hidden; padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="2">
+<div style="border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+Group 2
+</div>
+</th>
+<th style="border-bottom:hidden; padding-bottom:0; padding-left:3px;padding-right:3px;text-align: center; " colspan="2">
+<div style="border-bottom: 1px solid #ddd; padding-bottom: 5px;">
+Group 3
+</div>
+</th>
+</tr>
+<tr>
+<th style="text-align:left;">
+</th>
+<th style="text-align:right;">
+mpg
+</th>
+<th style="text-align:right;">
+cyl
+</th>
+<th style="text-align:right;">
+disp
+</th>
+<th style="text-align:right;">
+hp
+</th>
+<th style="text-align:right;">
+drat
+</th>
+<th style="text-align:right;">
+wt
+</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td style="text-align:left;">
+Mazda RX4
+</td>
+<td style="text-align:right;">
+21.0
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+160.0
+</td>
+<td style="text-align:right;">
+110
+</td>
+<td style="text-align:right;">
+3.90
+</td>
+<td style="text-align:right;">
+2.620
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Mazda RX4 Wag
+</td>
+<td style="text-align:right;">
+21.0
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+160.0
+</td>
+<td style="text-align:right;">
+110
+</td>
+<td style="text-align:right;">
+3.90
+</td>
+<td style="text-align:right;">
+2.875
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Datsun 710
+</td>
+<td style="text-align:right;">
+22.8
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+108.0
+</td>
+<td style="text-align:right;">
+93
+</td>
+<td style="text-align:right;">
+3.85
+</td>
+<td style="text-align:right;">
+2.320
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Hornet 4 Drive
+</td>
+<td style="text-align:right;">
+21.4
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+258.0
+</td>
+<td style="text-align:right;">
+110
+</td>
+<td style="text-align:right;">
+3.08
+</td>
+<td style="text-align:right;">
+3.215
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Hornet Sportabout
+</td>
+<td style="text-align:right;">
+18.7
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+360.0
+</td>
+<td style="text-align:right;">
+175
+</td>
+<td style="text-align:right;">
+3.15
+</td>
+<td style="text-align:right;">
+3.440
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Valiant
+</td>
+<td style="text-align:right;">
+18.1
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+225.0
+</td>
+<td style="text-align:right;">
+105
+</td>
+<td style="text-align:right;">
+2.76
+</td>
+<td style="text-align:right;">
+3.460
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Duster 360
+</td>
+<td style="text-align:right;">
+14.3
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+360.0
+</td>
+<td style="text-align:right;">
+245
+</td>
+<td style="text-align:right;">
+3.21
+</td>
+<td style="text-align:right;">
+3.570
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Merc 240D
+</td>
+<td style="text-align:right;">
+24.4
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+146.7
+</td>
+<td style="text-align:right;">
+62
+</td>
+<td style="text-align:right;">
+3.69
+</td>
+<td style="text-align:right;">
+3.190
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Merc 230
+</td>
+<td style="text-align:right;">
+22.8
+</td>
+<td style="text-align:right;">
+4
+</td>
+<td style="text-align:right;">
+140.8
+</td>
+<td style="text-align:right;">
+95
+</td>
+<td style="text-align:right;">
+3.92
+</td>
+<td style="text-align:right;">
+3.150
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Merc 280
+</td>
+<td style="text-align:right;">
+19.2
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+167.6
+</td>
+<td style="text-align:right;">
+123
+</td>
+<td style="text-align:right;">
+3.92
+</td>
+<td style="text-align:right;">
+3.440
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Merc 280C
+</td>
+<td style="text-align:right;">
+17.8
+</td>
+<td style="text-align:right;">
+6
+</td>
+<td style="text-align:right;">
+167.6
+</td>
+<td style="text-align:right;">
+123
+</td>
+<td style="text-align:right;">
+3.92
+</td>
+<td style="text-align:right;">
+3.440
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Merc 450SE
+</td>
+<td style="text-align:right;">
+16.4
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+275.8
+</td>
+<td style="text-align:right;">
+180
+</td>
+<td style="text-align:right;">
+3.07
+</td>
+<td style="text-align:right;">
+4.070
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Merc 450SL
+</td>
+<td style="text-align:right;">
+17.3
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+275.8
+</td>
+<td style="text-align:right;">
+180
+</td>
+<td style="text-align:right;">
+3.07
+</td>
+<td style="text-align:right;">
+3.730
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Merc 450SLC
+</td>
+<td style="text-align:right;">
+15.2
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+275.8
+</td>
+<td style="text-align:right;">
+180
+</td>
+<td style="text-align:right;">
+3.07
+</td>
+<td style="text-align:right;">
+3.780
+</td>
+</tr>
+<tr>
+<td style="text-align:left;">
+Cadillac Fleetwood
+</td>
+<td style="text-align:right;">
+10.4
+</td>
+<td style="text-align:right;">
+8
+</td>
+<td style="text-align:right;">
+472.0
+</td>
+<td style="text-align:right;">
+205
+</td>
+<td style="text-align:right;">
+2.93
+</td>
+<td style="text-align:right;">
+5.250
+</td>
+</tr>
+</tbody>
+</table>
+<p>Again, the format differs to that detailed in the vignette, no horizontal lines are produced.</p>
+<p>Lastly, let’s try xtable using the image linked in this <a href="https://stackoverflow.com/questions/37449067/use-xtable-to-print-html-table-in-r-markdown-file">stackoverflow</a> thread.</p>
+<pre class="r"><code>library(xtable)
+print(xtable(dt), type = &quot;html&quot;)</code></pre>
+<pre><code>## &lt;!-- html table generated in R 3.5.0 by xtable 1.8-2 package --&gt;
+## &lt;!-- Sun Dec 16 14:03:33 2018 --&gt;
+## &lt;table border=1&gt;
+## &lt;tr&gt; &lt;th&gt;  &lt;/th&gt; &lt;th&gt; mpg &lt;/th&gt; &lt;th&gt; cyl &lt;/th&gt; &lt;th&gt; disp &lt;/th&gt; &lt;th&gt; hp &lt;/th&gt; &lt;th&gt; drat &lt;/th&gt; &lt;th&gt; wt &lt;/th&gt;  &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Mazda RX4 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 21.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 6.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 160.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 110.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.90 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 2.62 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Mazda RX4 Wag &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 21.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 6.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 160.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 110.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.90 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 2.88 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Datsun 710 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 22.80 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 4.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 108.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 93.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.85 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 2.32 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Hornet 4 Drive &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 21.40 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 6.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 258.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 110.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.08 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.21 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Hornet Sportabout &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 18.70 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 8.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 360.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 175.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.15 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.44 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Valiant &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 18.10 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 6.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 225.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 105.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 2.76 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.46 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Duster 360 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 14.30 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 8.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 360.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 245.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.21 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.57 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Merc 240D &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 24.40 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 4.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 146.70 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 62.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.69 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.19 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Merc 230 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 22.80 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 4.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 140.80 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 95.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.92 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.15 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Merc 280 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 19.20 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 6.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 167.60 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 123.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.92 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.44 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Merc 280C &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 17.80 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 6.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 167.60 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 123.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.92 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.44 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Merc 450SE &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 16.40 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 8.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 275.80 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 180.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.07 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 4.07 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Merc 450SL &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 17.30 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 8.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 275.80 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 180.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.07 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.73 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Merc 450SLC &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 15.20 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 8.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 275.80 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 180.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.07 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 3.78 &lt;/td&gt; &lt;/tr&gt;
+##   &lt;tr&gt; &lt;td align=&quot;right&quot;&gt; Cadillac Fleetwood &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 10.40 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 8.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 472.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 205.00 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 2.93 &lt;/td&gt; &lt;td align=&quot;right&quot;&gt; 5.25 &lt;/td&gt; &lt;/tr&gt;
+##    &lt;/table&gt;</code></pre>
+<p>No go. It looks like I’ll have to come back to this one….</p>

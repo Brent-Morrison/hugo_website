@@ -1,0 +1,55 @@
+---
+title: Kable correction
+author: Brent Morrison
+date: '2018-12-16'
+slug: kable-tables
+categories:
+  - post
+tags:
+  - test
+description: ''
+topics: []
+---
+
+Lets try and resolve the issue I reported [here](https://brentmorrison.netlify.com/post/test-post/) . This code attempts to rectify the formatting issue by closing off the code chunk appropriately.   I've also loaded the tidyverse packages as was done in this [stackoverflow](https://stackoverflow.com/questions/48409288/how-to-show-kable-kableextra-tables-in-r-markdown-notebook-not-just-in-the-knit?rq=1) post.
+
+```{r code_chunk_1, echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+  library(kableExtra)
+  library(tidyverse)
+  library(knitr)
+  dt <- mtcars[1:15, 1:6]
+  kable(dt, format = "html", align = "c") %>%
+    kable_styling(bootstrap_options = c("striped", "hover"), 
+                  full_width = T,
+                  position = "left") %>%
+    column_spec(1, width = "10em") %>% 
+    column_spec(2, width = "7em") %>% 
+    column_spec(3, width = "7em") %>% 
+    column_spec(4, width = "7em") %>% 
+    column_spec(5, width = "7em") %>% 
+    column_spec(6, width = "7em") %>% 
+    footnote(general = "Here is a general comments of the table. ",
+             number = c("Footnote 1; ", "Footnote 2; "),
+             alphabet = c("Footnote A; ", "Footnote B; "),
+             symbol = c("Footnote Symbol 1; ", "Footnote Symbol 2"))
+```
+
+That does not have any impact.  
+
+Let's try something different.
+```{r code_chunk_2, echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+kable(dt) %>%
+  kable_styling("striped") %>%
+  add_header_above(c(" " = 1, "Group 1" = 2, "Group 2" = 2, "Group 3" = 2))
+```
+
+Again, the format differs to that detailed in the vignette, no horizontal lines are produced.   
+
+Lastly, let's try xtable using the image linked in this [stackoverflow](https://stackoverflow.com/questions/37449067/use-xtable-to-print-html-table-in-r-markdown-file) thread.
+
+```{r code_chunk_3, echo=TRUE, error=FALSE, message=FALSE, warning=FALSE}
+library(xtable)
+print(xtable(dt), type = "html")
+```
+No go.  It looks like I'll have to come back to this one....
+
