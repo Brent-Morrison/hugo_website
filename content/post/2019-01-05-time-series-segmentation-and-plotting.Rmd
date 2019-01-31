@@ -1,0 +1,237 @@
+---
+title: 'Time series segmentation and plotting '
+author: Brent Morrison
+date: '2019-01-05'
+slug: time-series-segmentation-and-plotting
+categories:
+  - post
+tags:
+  - Plots
+description: ''
+topics: []
+---
+
+This post is going to analyse a component the data downloaded [here](https://brentmorrison.netlify.com/post/financial-data-aggregator/), plotting the spread between the Federal funds rate and 10 year treasury rate (the yield curve) against the S&P 500 index.  We will also decompose the yield curve into bins or categories based on its level and change, plotting a histogram of subsequent S&P 500 returns for each bin.  
+
+### Background  
+The yield curve has been theorised to be a powerful predictor of the business cycle,  [(wikipedia reference)](https://en.wikipedia.org/wiki/Yield_curve#Relationship_to_the_business_cycle).  We are not interested in the business cycle, but rather the yield curves predictive relationship to the stock market.  Specifically, does any particular level, change (or combination thereof) of the yield curve provide information about future stock market returns.  For example if the yield curve is in the lowest third of its historical range, and is increasing, do subsequent returns differ compared to other periods.   
+
+### Data preparation
+We begin loading the required packages and the data prepared previously.
+```{r code_chunk_1, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+library("tidyverse")
+library("cowplot")
+library("caret")
+library("scales")
+
+econ_fin_data <- readRDS("econ_fin_data.Rda")
+sp_shade      <- readRDS("sp_shade.Rda")
+```
+Next, we calculate the yield curve subtracting the fed funds from the 10 year treasury rate, select the required data set and categorise the yield curve into bins representing specific level and change values.  The code block below decomposes the time series of the yield curve into 6 bins. The level of the yield curve is split into terciles or three bins containing an equal number of months and the change in level is categorised as either an increase or decrease (positive or negative 6 month change).  The combination of these is then lagged 6 months and 12 months resulting in 18 bins in total.
+
+```{r code_chunk_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+# create the yield curve time series (designated "ff_10")
+x2 <- econ_fin_data %>% mutate(ff_10 = GS10 - FEDFUNDS) %>%
+  
+  # select data required, including indicator under analysis
+  select(date, close, fwd_rtn_m, ff_10) %>% 
+  
+  # lagged values of indicator under analysis
+  mutate(x1.lag6  = lag(ff_10, 6), 
+         x1.lag12 = lag(ff_10, 12),
+         
+         # tercile level factor
+         x1.qntlx = ntile(ff_10, 3), 
+         x1.qntl = case_when(x1.qntlx == 1 ~ "_low", 
+                             x1.qntlx == 2 ~ "_mid", 
+                             x1.qntlx == 3 ~ "_high"),
+         
+         # change in level indicator
+         x1.rtn6  = ff_10 - x1.lag6,
+         x1.rtn12 = ff_10 - x1.lag12,
+         
+         # binary change in level factor
+         x1.delta = if_else(ff_10 > lag(ff_10, n = 6), 
+                            "incr", 
+                            "decr")) %>% 
+  
+  # factor combining tercile level and binary change in level factors 
+  unite(x1_lag00, c(x1.qntl, x1.delta),sep = "_", remove = FALSE) %>%
+  
+  # lagged combined factor and filter out NA's
+  mutate(x1_lag06 = lag(x1_lag00, 6),                          
+         x1_lag12 = lag(x1_lag00, 12)) %>%                           
+  filter(!is.na(x1.lag12))
+```
+Extract the current status of the yield curve with respect to the level and change bins just created.  This will call out the current status of each of the three level / change bins. 
+```{r code_chunk_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+# current values of factor values for plot text
+x2.1 <- slice(x2, n()) %>% select(x1_lag00, x1_lag06, x1_lag12) %>% t() %>% 
+  data.frame() %>% rownames_to_column() %>% 
+  unite(Indicator, c(rowname, .), sep = "", remove = TRUE) %>% 
+  mutate(Indicator =  gsub("x1_", "", Indicator))
+
+# view current values
+str(x2.1)
+```
+Three values are returned, the current and two lagged values.  Note the format of these values, this will be used later in the the histogram. 
+
+In order to enable segmentation for the histogram we need to create dummy variables for each of the 18 bins. 
+```{r code_chunk_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+# dummy variables for each (current & lagged) combined level / change factor
+x3 <- predict(dummyVars(" ~ x1_lag00", data = x2), newdata = x2)
+x4 <- predict(dummyVars(" ~ x1_lag06", data = x2), newdata = x2)
+x5 <- predict(dummyVars(" ~ x1_lag12", data = x2), newdata = x2)
+
+# combine dummy variable sets (current and lagged) to single data frame 
+x6 <- as.tibble(cbind(x3, x4, x5)) %>% select(-contains("NA")) %>% 
+  rownames_to_column(var = 'rowIndex') %>% 
+  
+  # transform combined dummy variable data from wide to long format
+  gather(key = 'Indicator', value = 'Value', -rowIndex) %>% 
+  
+  # convert dummy variable to factor
+  mutate(Value_fact = ifelse(Value == 1, "In", "Out"))
+
+# assign rownames to columns in order to join return data to dummy variable data 
+x7 <- x2 %>% select(date, fwd_rtn_m) %>% rownames_to_column(var = 'rowIndex')
+
+# data for histogram plot - join return data to dummy variable data 
+x8 <- full_join(x6, x7, by  = 'rowIndex') %>% 
+  # rename indicator
+  mutate(Indicator = str_replace(Indicator, "x1_", "ff_10 : "))
+```
+We now have a table that contains 18 records for each date, one for each of the current and two lagged level / change categories defined earlier, these are our dummy variables.  Three of these will be labelled "In" (one of the six of each of the current and two lagged values), representing the status of the yield curve at that point in time.  The table also contains the monthly return of the S&P 500 for the month subsequent to that labelled. It is from this table that the histogram is derived.
+```{r code_chunk_5, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, results="asis"}
+library("knitr")
+library("kableExtra")
+x8 %>% filter(date == "2018-11-01") %>% select(-rowIndex, -Value) %>% 
+  kable() %>%  kable_styling()
+```
+Note the same bins labelled "In" as that returned above.  
+
+### Measure of dissimilarity
+
+Recall that we are interested in the predictive power of yield curves to the stock market.  Should there be a relationship between the status of the yield curve defined by our level / change bins and future returns, returns subsequent to when specific bins are triggered will differ to all other returns.  
+
+How do we determine if stock market returns do indeed differ for specific periods, in our case, periods when the yield curve is in a specific decomposition bin with reference to its level and change, and all other times?  We could compare the mean monthly return for each period, testing for significance of difference in mean with a T test.  The T test however assumes the underlying data is normally distributed. This is not the case with returns of financial assets.  We therefore need to use a non parametric test, a test which does not require the normality assumption. The Kolmogorov-Smirnov test is one such test.  From [Wikipedia](https://en.wikipedia.org/wiki/Kolmogorov%E2%80%93Smirnov_test)  
+
+>  "The two-sample K-S test is one of the most useful and general nonparametric methods for comparing two samples, as it is sensitive to differences in both location and shape of the empirical cumulative distribution functions of the two samples."
+
+The code below creates a nested data frame so that a K-S test can be performed for each bin, assessing the dissimilarity of subsequent monthly returns when that bin is triggered and when not. The difference in average return is also calculated. These measurements will be used to narrate the plot. 
+```{r code_chunk_6, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+# data for kolmorogov smirnov test - list of data frames for
+# each value of each (current & lagged) combined level / change factor
+x8.1<-x8 %>% select(Indicator, date, Value_fact, fwd_rtn_m) %>% 
+  spread(Value_fact, fwd_rtn_m) %>% nest(-Indicator)
+
+# perform ks test, map to each element of nested dataframe
+x8.2<-x8.1 %>% mutate(ks_fit = map(data, ~ks.test(.$In, .$Out)),
+                      p_val  = map_dbl(ks_fit, "p.value"))
+
+# mean return data & difference in mean for histogram text
+x9 <- x8 %>% group_by(Value_fact, Indicator) %>% summarise(Mean = mean(fwd_rtn_m))
+x9.1<-x9 %>% spread(Value_fact, Mean) %>% mutate(mean_diff = In - Out)
+```
+### Histogram plot
+
+The code below creates two histograms measuring subsequent monthly S&P 500 returns for each level / change bin, one each for when the bin is triggered and one for all other periods.
+```{r code_chunk_7, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.5,fig.height=8}
+x10 <- ggplot(data = x8, aes(x = fwd_rtn_m, colour = Value_fact, fill = Value_fact)) +
+  geom_density(alpha = 0.3) + 
+  geom_text(data = x9.1, size = 2.5, (aes(x = -0.25, y = 12, label = paste0("Difference in\nmean ", percent(round(mean_diff,4)), sep = " "), colour = NULL, fill = NULL)), hjust = 0) +
+  geom_text(data = x8.2, size = 2.5, (aes(x = -0.25, y = 8, label = paste0("KS pvalue ", percent(round(p_val,4)), sep =" "), colour = NULL, fill = NULL)), hjust = 0) +
+  geom_vline(data     = x9, aes(xintercept = Mean, colour = Value_fact),
+             linetype = "dashed", size = 0.5) +
+  labs(title          = "Subsequent month returns", 
+       subtitle       = paste("Conditioned on binary indicator as specified for each facet.\nCurrent values: ", x2.1[1, 1], ", ", x2.1[2, 1], " and ", x2.1[3, 1], ".", sep = ""),
+       caption        = " The orange distribution represents subsequent monthly returns during\nperiods when the indicator is in the lag / level / direction specified\nby the facet title.  The blue distribution represent subsequent\nreturns during all other periods.", 
+       x              = "", 
+       y              = "") +
+  facet_wrap(~ Indicator, ncol = 6) + 
+  theme_grey() +
+  theme(plot.title    = element_text(face = "bold", size = 14),
+        plot.subtitle = element_text(face = "italic", size = 10),
+        plot.caption  = element_text(face = "italic", size = 8),
+        axis.title.y  = element_text(face = "italic", size = 9),
+        axis.title.x  = element_text(face = "italic", size = 7),
+        legend.position = "none" 
+  )
+plot(x10)
+```
+
+
+Lastly, the code below plots the S&P 500 and yield curve overlaying periods when the maximum drawdown is greater than 20% or the return is less than 2.5% for the next 6 monthly period.
+```{r code_chunk_8, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=9,fig.height=8}
+# plot S&P500 and market in/out shading
+x11<-ggplot(data         = x2, 
+            aes(x        = date, 
+                y        = close, 
+                group    = 1)) +
+  geom_line() +
+  scale_y_log10() +
+  geom_rect(data        = sp_shade, 
+            inherit.aes = FALSE,
+            aes(xmin    = start, xmax = end, ymin = 0, ymax = Inf), 
+            fill        ='lightblue', alpha=0.5) +
+  theme_minimal() +
+  labs(title            = "S&P500", 
+       subtitle         = "log scale",
+       caption          = "", 
+       x                = "Year",
+       y                = "Close") +
+  geom_hline(yintercept = 0, color = "black") +
+  theme(plot.title      = element_text(face = "bold", size = 14),
+        plot.subtitle   = element_text(face = "italic", size = 9),
+        plot.caption    = element_text(hjust = 0),
+        axis.title.y    = element_text(face = "italic", size = 9),
+        axis.title.x    = element_text(face = "italic", size = 9))
+
+
+# Plot of selected yield curve & in/out shading
+x12<-ggplot(data         = x2, 
+            aes(x        = date, 
+                y        = ff_10,
+                group    = 1)) +
+  geom_line() +
+  geom_rect(data        = sp_shade, 
+            inherit.aes = FALSE,
+            aes(xmin    = start, xmax = end, ymin = -Inf, ymax = Inf), 
+            fill        = 'lightblue', 
+            alpha       = 0.5) +
+  geom_hline(yintercept = 0, color = "black") +  
+  geom_hline(yintercept = quantile(x2$ff_10, probs = 0.33), color = "black", linetype = "dotted") + 
+  geom_hline(yintercept = quantile(x2$ff_10, probs = 0.66), color = "black", linetype = "dotted") + 
+  theme_minimal() +
+  labs(title            = "",
+       subtitle         = "",
+       x                = "Year", 
+       y                = "Fed Funds, 10yr treasury spread",
+       caption          = "Dashed lines represent upper and lower terciles") + 
+  theme(plot.title      = element_text(face  = "bold", size = 14),
+        plot.subtitle   = element_text(face  = "italic", size = 9),
+        plot.caption    = element_text(face = "italic", size = 8),
+        axis.title.y    = element_text(face  = "italic", size = 9),
+        axis.title.x    = element_text(face  = "italic", size = 9))
+
+# combine plots
+plot_grid(x11, x12, ncol = 1, align = 'v')
+```
+So what are these plots telling us about the yield curve?  Does the yield curve predict stock market returns?  
+
+Based on the histogram results, when the current value of the yield curve (defined as the Fed Funds rate less the 10 Year Treasury rate) is low and increasing (the facet labelled "lag00_low_incr") we want to stay out of the market, the average of subsequent months returns are nearly 1% lower than all other periods in this situation.  We are confident this is a significant difference based on the results of the two sample Kolmorogov Smirnov test, this test returns a p value of 0.6% (the null hypothesis that the two samples were drawn from the same distribution is rejected if the p-value is less than your significance level).  
+
+If we look at the plot of the yield curve we can confirm this visually.  It does appear for example that the drawdowns in years 2000 and 2008 are preceded by and coincident with the shaded areas.   The second most significant bin for the current value of the yield curve is when it is in the mid tercile and decreasing, subsequent returns are 0.75% higher with a K-S p value of 3.7%.  For reference, average monthly returns over the time under analysis are  `r  percent(round(mean(econ_fin_data$rtn_m[-length(econ_fin_data$rtn_m)][-1]),4))`.  
+
+Looking at lagged values of the yield curve, four situations arise that would lead us to take a view on the market:  
+1. When the 6 month lagged yield curve is low and increasing (lower subsequent returns)  
+2. When the 12 month lagged yield curve is high and increasing (higher subsequent returns)  
+3. When the 12 month lagged yield curve is low and decreasing (lower subsequent returns)  
+4. When the 12 month lagged yield curve is mid and decreasing (higher subsequent returns)  
+
+
+### Limitations
+The binning approach is quiet crude in that by design it peaks into the future.  The measurement of the tercile barriers during the 1970's uses data from the 2000's for example.  A more robust approach would be to utilise a rolling fixed starting point window to estimate terciles for binning.
+Further, it may be that tercile bins are not appropriate cutoffs, maybe the traditional inversion of the yield curve or some other level is an appropriate cut-off.  Despite these limitations, this approach does provide a high level overview of the relationship between the level of the yield curve and subsequent stock market returns.  This information may be useful in building more sophisticated models, informing relevant dummy variables in a regression for example.  
+
+The code blocks above producing the histogram and line plots will of course be useful in analysing other time series, to that end they have been written to a function, the trans.plot() functions detailed [here](https://github.com/Brent-Morrison/Custom_functions/blob/master/Function_script.R). 
