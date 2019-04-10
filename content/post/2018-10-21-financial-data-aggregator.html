@@ -12,7 +12,7 @@ topics: []
 
 
 
-<p>This post is going to document an R script that will download and aggregate various financial and economic time series. This data will be used in future posts to perform modelling and analyse.</p>
+<p>This post is going to document an R script that will download and aggregate various financial and economic time series. This data will be used in future posts to perform various modelling and analysis work.</p>
 <div id="packages-required-and-download-parameters" class="section level3">
 <h3>Packages required and download parameters</h3>
 <p>Load the required packages.</p>
@@ -178,7 +178,7 @@ sp_5 &lt;- sp_5 %&gt;%
   
   # Indicator for when binary flag changes
   mutate(diff_flag = c(NA, diff(y1)))</code></pre>
-<p>The attribute y1 is a binary indicator that looks forward over the next 6 months and return 1 if the maximum drawdown is greater than 20% or the return is less than 2.5% (these parameters can be changed as detailed above). This will be the independent or forecast variable for future analysis.</p>
+<p>The attribute y1 is a binary indicator that looks forward over the next 6 months and return 1 if the maximum draw down is greater than 20% or the return is less than 2.5% (these parameters can be changed as detailed above). This will be the independent or forecast variable for future analysis.</p>
 <p>If we can forecast this indicator we can stay out of the market during downturns or when returns are deemed insufficient.</p>
 <p>In order to visualise this indicator it is ideal to do so as a shading over a time series chart. In order to do that we need to convert the indicator into a series of start and end dates, the following code does just that.</p>
 <pre class="r"><code>sp_5s    &lt;-  sp_5 %&gt;% filter(diff_flag == 1) %&gt;% select(date) %&gt;% rename(start = date)
