@@ -63,7 +63,7 @@ x2 &lt;- econ_fin_data %&gt;% mutate(ff_10 = GS10 - FEDFUNDS) %&gt;%
   mutate(x1_lag06 = lag(x1_lag00, 6),                          
          x1_lag12 = lag(x1_lag00, 12)) %&gt;%                           
   filter(!is.na(x1.lag12))</code></pre>
-<p>Extract the current status of the yield curve with respect to the level and change bins just created. This bloke of code will call out the current status of each of the three level / change bins.</p>
+<p>Extract the current status of the yield curve with respect to the level and change bins just created. This block of code will call out the current status of each of the three level / change bins.</p>
 <pre class="r"><code># current values of factor values for plot text
 x2.1 &lt;- slice(x2, n()) %&gt;% select(x1_lag00, x1_lag06, x1_lag12) %&gt;% t() %&gt;% 
   data.frame() %&gt;% rownames_to_column() %&gt;% 

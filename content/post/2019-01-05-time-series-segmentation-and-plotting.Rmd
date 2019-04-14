@@ -65,7 +65,7 @@ x2 <- econ_fin_data %>% mutate(ff_10 = GS10 - FEDFUNDS) %>%
          x1_lag12 = lag(x1_lag00, 12)) %>%                           
   filter(!is.na(x1.lag12))
 ```
-Extract the current status of the yield curve with respect to the level and change bins just created.  This bloke of code will call out the current status of each of the three level / change bins. 
+Extract the current status of the yield curve with respect to the level and change bins just created.  This block of code will call out the current status of each of the three level / change bins. 
 ```{r code_chunk_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # current values of factor values for plot text
 x2.1 <- slice(x2, n()) %>% select(x1_lag00, x1_lag06, x1_lag12) %>% t() %>% 
