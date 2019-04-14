@@ -28,7 +28,7 @@ library("tibbletime")
 We then set parameters specifying the data to be downloaded.
 ```{r code_chunk_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # Parameters for binary market indicator
-lb = 6                  #  Lookback period
+lb = 6                  #  Lookback period for drawdown assessment
 pc = 0.2                #  Percent drawdown for binary market in/out indicator cutoff
 fr = -0.025             #  Forward return for binary market in/out indicator cutoff
 
@@ -120,7 +120,7 @@ Let's see what our data looks like at this stage.
 ```{r code_chunk_5, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 str(econ.m)
 ```
-Obviously not all times series start at the specified start date.  Everything requested is there, however we have not joined the S&P 500 index data as yet.
+It is apparent with the NA's returned that not all times series begin at the specified start date.  Everything requested is there however.  Next we want to download and join the S&P 500 index time series.
 
 ### Stock market data
 
