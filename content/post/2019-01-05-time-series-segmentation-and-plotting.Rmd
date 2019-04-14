@@ -11,12 +11,12 @@ description: ''
 topics: []
 ---
 
-This post is going to analyse a component of the data downloaded [here](https://brentmorrison.netlify.com/post/financial-data-aggregator/), plotting the slope of the yield curve, calculated as the spread between the federal funds rate and 10 year treasury note rate, and the S&P 500 index.  We will also discretise the yield curve into bins or categories based on its level and change, plotting a histogram of subsequent S&P 500 returns for each bin.  
+This post is going to analyse a component of the data downloaded [here](https://brentmorrison.netlify.com/post/financial-data-aggregator/), plotting the slope of the yield curve and the S&P 500 index.  We will also discretise the yield curve into bins or categories based on its level and change, plotting a histogram of subsequent S&P 500 returns associated with each bin.  The aim of this excercise is to determine if the slope of yield curve leads the stock market.
 
 ### Background  
-The yield curve has been theorised to be a powerful predictor of the business cycle,  [(wikipedia reference)](https://en.wikipedia.org/wiki/Yield_curve#Relationship_to_the_business_cycle).  We are not interested in the business cycle, but rather if the yield curves is a leading indicator to the stock market.  Specifically, does any particular level, change (or combination thereof), of the yield curve provide information about future stock market returns.  For example if the yield curve is in the lowest third of its historical range, and is increasing, do subsequent stock market returns differ compared to other periods?   
+The yield curve, calculated as the spread between the federal funds rate and 10 year treasury note rate has been theorised to be a powerful predictor of the business cycle  [(wikipedia reference)](https://en.wikipedia.org/wiki/Yield_curve#Relationship_to_the_business_cycle).  We are not interested in the business cycle, but rather if the yield curve is a leading indicator to the stock market.  Specifically, does any particular level, change (or combination thereof) of the yield curve provide information about future stock market returns.  For example if the yield curve is in the lowest third of its historical range, and is increasing, do subsequent stock market returns differ compared to other periods?   
 
-The logic for using a discretisation approach, as opposed to interpreting regression co-efficients is motivated by the expectation of non-linearities in the relationship between the yield curve and stock market.  If the inversion of the yield curve is considered a signal of lower future economic activity as theorised above, then it would be expected that the status of the yield curve at other times is not relevent.  Although economic activity does not necessarily correlate to stock market returns, this non-linearity is the initial expectation for any possible relationship between the yield curve and stock market. 
+The logic for using a discretisation approach, as opposed to interpreting regression co-efficients is motivated by the expectation of non-linearities in the relationship between the yield curve and stock market.  If the inversion of the yield curve is considered a signal of lower future economic activity as theorised above, then it would be expected that the status of the yield curve at other times is not relevent.   
 
 ### Data preparation
 We begin loading the required packages and the data prepared previously.
@@ -29,7 +29,7 @@ library("scales")
 econ_fin_data <- readRDS("econ_fin_data.Rda")
 sp_shade      <- readRDS("sp_shade.Rda")
 ```
-Next, we calculate the yield curve subtracting the fed funds rate from the 10 year treasury note rate, select the required data set and categorise the yield curve into bins representing specific level and change values.  The code block below decomposes the time series of the yield curve into 6 bins. The level of the yield curve is split into terciles or three bins containing an equal number of months and the change in level is categorised as either an increase or decrease (positive or negative 6 month change).  The combination of these is then lagged 6 months and 12 months resulting in 18 bins in total.
+Next, we calculate the yield curve, subtracting the fed funds rate from the 10 year treasury note rate.  We then categorise the yield curve into bins representing specific level and change values.  The code block below decomposes the time series of the yield curve into 6 bins. The level of the yield curve is split into terciles or three bins containing an equal number of months.  The change in level is categorised as either an increase or decrease (positive or negative 6 month change).  The combination of these is then lagged 6 months and 12 months resulting in 18 bins in total.
 
 ```{r code_chunk_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # create the yield curve time series (designated "ff_10")
@@ -76,9 +76,9 @@ x2.1 <- slice(x2, n()) %>% select(x1_lag00, x1_lag06, x1_lag12) %>% t() %>%
 # view current values
 str(x2.1)
 ```
-Three values are returned, the current and two lagged values.  Note the format of these values, this will be used later in the the histogram. 
+Three strings are returned, the current and two lagged values.  Note the format of these strings, this will be used later in the the histogram. The first five characters specify whether the indicator is current or lagged, the middle three characters specify the level tercile, and lastly we have the change in slope indicator.   
 
-In order to enable segmentation for the histogram we need to create dummy variables for each of the 18 bins. 
+Recall that we would like to plot a histogram of subsequent S&P500 returns.  In order to enable segmentation for the histogram we need to create dummy variables for each of the 18 bins. This is were the caret package comes in handy.
 ```{r code_chunk_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # dummy variables for each (current & lagged) combined level / change factor
 x3 <- predict(dummyVars(" ~ x1_lag00", data = x2), newdata = x2)
@@ -103,7 +103,7 @@ x8 <- full_join(x6, x7, by  = 'rowIndex') %>%
   # rename indicator
   mutate(Indicator = str_replace(Indicator, "x1_", "ff_10 : "))
 ```
-We now have a table containing 18 records for each date, six for each of the current and two lagged level / change bins as previously defined, these are our dummy variables.  Three of these will be labelled "In" (one of the six of each of the current and two lagged values), representing the status of the yield curve at that point in time.  The table also contains the monthly return of the S&P 500 for the month subsequent to that labelled. It is from this table that the histogram is derived.
+We now have a table containing 18 records for each date, six for each of the current and two lagged level / change bins as previously defined.  These are our dummy variables.  Three of these will be labelled "In" (one of the six of each of the current and two lagged values), representing the status of the yield curve at that point in time.  The table also contains the monthly return of the S&P 500 for the month subsequent to that labelled. It is from this table that the histogram is derived.
 ```{r code_chunk_5, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, results="asis"}
 library("knitr")
 library("kableExtra")
@@ -116,7 +116,7 @@ Note the same bins are labelled "In" as that returned above.
 
 ### Measure of dissimilarity
 
-Recall that we are interested in the predictive power of yield curves to the stock market.  Should there be a relationship between the status of the yield curve defined by our level / change bins and future returns, returns subsequent to when specific bins are triggered will differ to all other returns.  
+We are interested in the predictive power of yield curve to the stock market.  Should there be a relationship between the status of the yield curve defined by our level / change bins and future returns, returns subsequent to when specific bins are triggered will differ to all other returns.  
 
 How do we determine if stock market returns do indeed differ for specific periods, in our case, periods when the yield curve is in a specific decomposition bin with reference to its level and change, and all other times?  We could compare the mean monthly return for each period, testing for significance of difference in mean with a T test.  The T test however assumes the underlying data is normally distributed. This is not the case with returns of financial assets.  We therefore need to use a non parametric test, a test which does not require the normality assumption. The Kolmogorov-Smirnov test is one such test.  From [Wikipedia](https://en.wikipedia.org/wiki/Kolmogorov%E2%80%93Smirnov_test)  
 
@@ -225,7 +225,7 @@ So what are these plots telling us about the yield curve?  Does the yield curve 
 
 Based on the histogram results, when the current value of the yield curve (defined as the fed funds rate less the 10 year treasury note rate) is low and increasing (the facet labelled "lag00_low_incr") we want to stay out of the market, the average of subsequent months returns are nearly 1% lower than all other periods in this situation.  We are confident this is a significant difference based on the results of the two sample Kolmorogov Smirnov test, this test returns a p value of 0.6% (the null hypothesis that the two samples were drawn from the same distribution is rejected if the p-value is less than your significance level - typically set at 5%).  
 
-If we look at the plot of the yield curve we can confirm this visually.  It does appear for example that the drawdowns in years 2000 and 2008 are preceded preceded by anincrease in the yield curve from a low level.   The second most significant bin for the current value of the yield curve is when it is in the mid tercile and decreasing, subsequent returns are 0.75% higher with a K-S p value of 3.7%.  For reference, average monthly returns over the time under analysis are  `r  percent(round(mean(econ_fin_data$rtn_m[-length(econ_fin_data$rtn_m)][-1]),4))`.  
+If we look at the plot of the yield curve we can confirm this visually.  It does appear for example that the drawdowns in years 2000 and 2008 are preceded preceded by an increase in the yield curve from a low level.   The second most significant bin for the current value of the yield curve is when it is in the mid tercile and decreasing, subsequent returns are 0.75% higher with a K-S p value of 3.7%.  For reference, average monthly returns over the time under analysis are  `r  percent(round(mean(econ_fin_data$rtn_m[-length(econ_fin_data$rtn_m)][-1]),4))`.  
 
 Looking at lagged values of the yield curve, four situations arise that would lead us to take a view on the market:  
 1. When the 6 month lagged yield curve is low and increasing (lower subsequent returns)  
@@ -236,6 +236,6 @@ Looking at lagged values of the yield curve, four situations arise that would le
 
 ### Limitations
 Any analysis technique has it's advantages and disadvantages.  Discretisation or binning is useful in that it identifies non-lineararities, removes outliers and is simple to interprete.  The approach as it is used above does have some disadvantages however. It is quiet crude in that by design it peaks into the future.  The measurement of the tercile barriers during the 1970's uses data from the 2000's for example.  A more robust approach would be to utilise a rolling fixed starting point window to estimate terciles for binning.
-Further, it may be that tercile bins are not appropriate cutoffs, maybe the traditional inversion of the yield curve or some other level is an appropriate cut-off.  Despite these limitations, this approach does provide a high level overview of the relationship between the level of the yield curve and subsequent stock market returns.  This information may be useful in building more sophisticated models, informing relevant dummy variables in a regression for example.  
+Further, it may be that tercile bins are not appropriate cutoffs, maybe the traditional inversion of the yield curve or some other level is an appropriate cut-off.  We have not investigated this as a part of the current analysis.  Despite these limitations, this approach does provide a high level overview of the relationship between the level of the yield curve and subsequent stock market returns.  This information may be useful in building more sophisticated models, informing relevant dummy variables in a regression for example.  
 
 The code blocks above producing the histogram and line plots will of course be useful in analysing other time series, to that end they have been written to a function, the trans.plot() functions detailed [here](https://github.com/Brent-Morrison/Custom_functions/blob/master/Function_script.R). 
