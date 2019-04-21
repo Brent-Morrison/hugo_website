@@ -10,7 +10,11 @@ description: ''
 topics: []
 ---
 
+<<<<<<< HEAD
 This post will document an R script that will download and aggregate various financial and economic time series. This data will be used in future posts for modelling and analysis activities.  
+=======
+This post will document an R-script that will download and aggregate various financial and economic time series. This data will be used in future posts for modelling and analysis activities.  
+>>>>>>> 337cf14ba105c25fc24a19a5e1986bb569235ac4
 
 ### Packages required and download parameters
 

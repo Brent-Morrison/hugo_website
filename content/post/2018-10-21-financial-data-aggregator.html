@@ -12,7 +12,11 @@ topics: []
 
 
 
+<<<<<<< HEAD
 <p>This post will document an R script that will download and aggregate various financial and economic time series. This data will be used in future posts for modelling and analysis activities.</p>
+=======
+<p>This post will document an R-script that will download and aggregate various financial and economic time series. This data will be used in future posts for modelling and analysis activities.</p>
+>>>>>>> 337cf14ba105c25fc24a19a5e1986bb569235ac4
 <div id="packages-required-and-download-parameters" class="section level3">
 <h3>Packages required and download parameters</h3>
 <p>Load the required packages.</p>
@@ -57,9 +61,13 @@ fredm = c(&quot;AAA&quot;,       #    Moody&#39;s Seasoned Aaa Corporate Bond Yi
           &quot;TWEXMMTH&quot;,  #  Trade Weighted U.S. Dollar Index: Major Currencies
           &quot;UNRATE&quot;,    #    Civilian Unemployment Rate
           &quot;LOANS&quot;)     #    Loans and Leases in Bank Credit, All Commercial Banks </code></pre>
+<<<<<<< HEAD
 </div>
 <div id="downloading-external-data" class="section level3">
 <h3>Downloading external data</h3>
+=======
+<p>###Downloading external data</p>
+>>>>>>> 337cf14ba105c25fc24a19a5e1986bb569235ac4
 <p>This section of code executes the collection of data from various sources. We use the function “tq_get” from the tidyquant package.</p>
 <pre class="r"><code># Get S&amp;P500 data
 sp_5   &lt;-  tq_get(&quot;^GSPC&quot;,get = &quot;stock.prices&quot;,from = s.date)

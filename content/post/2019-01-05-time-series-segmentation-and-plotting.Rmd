@@ -76,7 +76,11 @@ x2.1 <- slice(x2, n()) %>% select(x1_lag00, x1_lag06, x1_lag12) %>% t() %>%
 # view current values
 str(x2.1)
 ```
+<<<<<<< HEAD
 Three strings are returned, the current and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.   
+=======
+Three strings are returned, the current one and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.   
+>>>>>>> 337cf14ba105c25fc24a19a5e1986bb569235ac4
 
 Remember that we would like to draw a histogram of the subsequent S&P 500 returns. To enable segmentation for the histogram, we need to create dummy variables for each of the 18 bins. This is where the Caret package comes in handy.
 ```{r code_chunk_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
@@ -235,7 +239,11 @@ Looking at lagged values of the yield curve, there are four situations that woul
 
 
 ### Limitations
+<<<<<<< HEAD
 Every analytical technique has its advantages and disadvantages. Discretisation or binning is useful in that it identifies nonlinearities, removes outliers, and is easy to interpret. However, the approach used above has some drawbacks. One drawback is that by design it peaks into the future.  The measurement of tercile barriers in the 1970's, for example, uses data from the 2000's. A more robust approach would be to use a rolling starting point window to estimate the terciles for binning.  
+=======
+Every analytical technique has its advantages and disadvantages. Discretisation or binning is useful in that it identifies nonlinearities, removes outliers, and is easy to interpret. However, the approach used above has some drawbacks. One drawback is that by design it peaks into the future.  The measurement of tercile barriers in the 1970s, for example, uses data from the 2000s. A more robust approach would be to use a rolling starting point window to estimate the terciles for binning.  
+>>>>>>> 337cf14ba105c25fc24a19a5e1986bb569235ac4
 
 In addition, it may be that tercile bins are not suitable cut-offs, perhaps the traditional inversion of the yield curve or another level is an appropriate cut-off. We have not investigated this in the current analysis. Despite these limitations, this approach provides a high-level overview of the relationship between the level of the yield curve and subsequent stock market returns. This information can be useful to create more complex models, for example, to inform relevant dummy variables in a regression.  
 
