@@ -10,11 +10,10 @@ description: ''
 topics: []
 ---
 
-<<<<<<< HEAD
 This post will document an R script that will download and aggregate various financial and economic time series. This data will be used in future posts for modelling and analysis activities.  
-=======
+
 This post will document an R-script that will download and aggregate various financial and economic time series. This data will be used in future posts for modelling and analysis activities.  
->>>>>>> 337cf14ba105c25fc24a19a5e1986bb569235ac4
+
 
 ### Packages required and download parameters
 
@@ -74,9 +73,7 @@ quandl_api_key("hpbPcsfGudN3viBgh8th")
 
 ### Downloading external data
 
-
 This section of code executes the collection of data from various sources. We use the function "tq_get" from the tidyquant package.
-
 ```{r code_chunk_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # Get S&P500 data
 sp_5   <-  tq_get("^GSPC",get = "stock.prices",from = s.date)
@@ -128,7 +125,7 @@ It is obvious that not all time series start on the specified start date. Howeve
 
 ### Stock market data
 
-We now want to take the stock data (the S&P 500 index), roll it up from a daily to a monthly periodicity, and create a set of rolling attributes.
+We now want to take stock index data (the S&P 500 index), roll it up from a daily to a monthly periodicity, and create a set of rolling attributes.
 ```{r code_chunk_6, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # Create new attributes
 sp_5 <- sp_5 %>% 
