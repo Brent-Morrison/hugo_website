@@ -75,7 +75,6 @@ str(x2.1)</code></pre>
 <pre><code>## &#39;data.frame&#39;:    3 obs. of  1 variable:
 ##  $ Indicator: chr  &quot;lag00_low_decr&quot; &quot;lag06_mid_decr&quot; &quot;lag12_mid_incr&quot;</code></pre>
 <p>Three strings are returned, the current and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.</p>
-<p>Three strings are returned, the current one and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.</p>
 <p>Remember that we would like to draw a histogram of the subsequent S&amp;P 500 returns. To enable segmentation for the histogram, we need to create dummy variables for each of the 18 bins. This is where the Caret package comes in handy.</p>
 <pre class="r"><code># dummy variables for each (current &amp; lagged) combined level / change factor
 x3 &lt;- predict(dummyVars(&quot; ~ x1_lag00&quot;, data = x2), newdata = x2)

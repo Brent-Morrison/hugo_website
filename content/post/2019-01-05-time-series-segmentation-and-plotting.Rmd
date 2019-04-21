@@ -78,8 +78,6 @@ str(x2.1)
 ```
 Three strings are returned, the current and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.   
 
-Three strings are returned, the current one and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.   
-
 Remember that we would like to draw a histogram of the subsequent S&P 500 returns. To enable segmentation for the histogram, we need to create dummy variables for each of the 18 bins. This is where the Caret package comes in handy.
 ```{r code_chunk_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # dummy variables for each (current & lagged) combined level / change factor
