@@ -140,7 +140,7 @@ econ.m  &lt;- full_join(econ.m, econ.m5, by = &quot;date&quot;) %&gt;%
 ##  $ Dividend : num  9.03 9.08 9.13 9.13 9.08 ...
 ##  $ Earnings : num  13.2 13.3 13.5 13.7 13.8 ...
 ##  $ CAPE     : num  12 12.3 12.3 12.6 13 ...</code></pre>
-<p>It is obvious that not all time series start on the specified start date. However, everything that is requested is present. Next, we want to download and join the S&amp;P 500 index time series.</p>
+<p>It is obvious that not all time series start on the specified start date. Everything that is requested is present. Next, we want to download and join the S&amp;P 500 index time series.</p>
 </div>
 <div id="stock-market-data" class="section level3">
 <h3>Stock market data</h3>
@@ -178,9 +178,9 @@ sp_5 &lt;- sp_5 %&gt;%
   
   # Indicator for when binary flag changes
   mutate(diff_flag = c(NA, diff(y1)))</code></pre>
-<p>The attribute y1 is a binary indicator that looks forward over the next 6 months and returns 1 if the maximum drawdown is more than 20% or the return is less than 2.5% (these parameters can be changed as described above). This is the independent or forecast variable for future analysis.</p>
+<p>The attribute y1 is a binary indicator that looks forward over the next 6 months and returns 1 if the maximum drawdown is more than 20% or the return is less than 2.5% (these parameters can be changed as described above). In all other cases this binary indicator returns 0. This is the independent or forecast variable for future analysis.</p>
 <p>If we can forecast this indicator, we can stay out of the market during downturns or when returns are considered insufficient.</p>
-<p>To visualize this indicator, it is ideal to do this as a shading over a time series chart. To achieve this, we need to convert the indicator into a series of start and end dates, the following code does just that.</p>
+<p>To visualize this indicator, it is ideal to do so as a shading over a time series chart. To achieve this, we need to convert the indicator into a series of start and end dates. The following code does just that.</p>
 <pre class="r"><code>sp_5s    &lt;-  sp_5 %&gt;% filter(diff_flag == 1) %&gt;% select(date) %&gt;% rename(start = date)
 sp_5e    &lt;-  sp_5 %&gt;% filter(diff_flag == -1) %&gt;% select(date) %&gt;% rename(end = date)
 short    &lt;-  min(count(sp_5s), count(sp_5e))

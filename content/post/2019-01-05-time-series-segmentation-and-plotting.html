@@ -30,7 +30,7 @@ library(&quot;scales&quot;)
 
 econ_fin_data &lt;- readRDS(&quot;econ_fin_data.Rda&quot;)
 sp_shade      &lt;- readRDS(&quot;sp_shade.Rda&quot;)</code></pre>
-<p>Next, we calculate the yield curve by subtracting the Federal funds rate from the 10-year Treasury rate. We then categorize the yield curve into bins that represent specific levels and change values. The following code block breaks down the time series of the yield curve into 6 bins. The yield curve level is divided into terciles or three bins with the same number of months. The change in level is categorized as either a rise or a fall (positive or negative 6-month change). The combination of these two is then lagged by 6 months and 12 months, resulting in a total of 18 bins. Three bins will be triggered at any point in time.</p>
+<p>Next, we calculate the yield curve by subtracting the Federal funds rate from the 10-year Treasury rate. We then categorize the yield curve into bins that represent specific levels and change values. The following code block breaks down the time series of the yield curve into 6 bins. The yield curve level is divided into terciles or three bins with the same number of months. The change in level is categorised as either a rise or a fall (positive or negative 6-month change). The combination of these two is then lagged by 6 months and 12 months, resulting in a total of 18 bins. Three bins will be triggered at any point in time.</p>
 <pre class="r"><code># create the yield curve time series (designated &quot;ff_10&quot;)
 x2 &lt;- econ_fin_data %&gt;% mutate(ff_10 = GS10 - FEDFUNDS) %&gt;%
   
@@ -75,7 +75,7 @@ str(x2.1)</code></pre>
 <pre><code>## &#39;data.frame&#39;:    3 obs. of  1 variable:
 ##  $ Indicator: chr  &quot;lag00_low_decr&quot; &quot;lag06_mid_decr&quot; &quot;lag12_mid_incr&quot;</code></pre>
 <p>Three strings are returned, the current and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.</p>
-<p>Remember that we would like to draw a histogram of the subsequent S&amp;P 500 returns. To enable segmentation for the histogram, we need to create dummy variables for each of the 18 bins. This is where the Caret package comes in handy.</p>
+<p>Remember that we would like to draw a histogram of the subsequent S&amp;P 500 returns. To enable segmentation for the histogram, we need to create dummy variables for each of the 18 bins. This is where the caret package comes in handy.</p>
 <pre class="r"><code># dummy variables for each (current &amp; lagged) combined level / change factor
 x3 &lt;- predict(dummyVars(&quot; ~ x1_lag00&quot;, data = x2), newdata = x2)
 x4 &lt;- predict(dummyVars(&quot; ~ x1_lag06&quot;, data = x2), newdata = x2)
@@ -98,10 +98,10 @@ x7 &lt;- x2 %&gt;% select(date, fwd_rtn_m) %&gt;% rownames_to_column(var = &#39;
 x8 &lt;- full_join(x6, x7, by  = &#39;rowIndex&#39;) %&gt;% 
   # rename indicator
   mutate(Indicator = str_replace(Indicator, &quot;x1_&quot;, &quot;ff_10 : &quot;))</code></pre>
-<p>We now have a table with 18 records for each date, six for each of the current and two delayed level/change bins as previously defined. Three of them are labelled “In” (one of the six of each of the current and two lagged values) and represent the status of the yield curve at that time. All other records are labelled “Out”. These are our dummy variables. The table also contains the monthly return of the S&amp;P 500 for the month following the designation. The histogram is derived from this table.</p>
+<p>We now have a table with 18 records for each date, six for each of the current and two delayed level/change bins as previously defined. Three of them are labelled “In”, one of the six of each of the current and two lagged values, these represent the status of the yield curve at that date. All other records are labelled “Out”. These are our dummy variables. The table also contains the monthly return of the S&amp;P 500 for the month following the designation. The histogram is derived from this table.</p>
 <pre class="r"><code>library(&quot;knitr&quot;)
 library(&quot;kableExtra&quot;)
-x8 %&gt;% filter(date == &quot;2018-11-01&quot;) %&gt;% select(date, fwd_rtn_m, Indicator, Value_fact) %&gt;% 
+x8 %&gt;% filter(date == &quot;2019-03-01&quot;) %&gt;% select(date, fwd_rtn_m, Indicator, Value_fact) %&gt;% 
   kable(align = &quot;c&quot;) %&gt;%  kable_styling(bootstrap_options = c(&quot;striped&quot;, &quot;responsive&quot;)) %&gt;%
   column_spec(1, width = &quot;5cm&quot;) %&gt;% column_spec(2, width = &quot;4cm&quot;) %&gt;% 
   column_spec(3, width = &quot;8cm&quot;) %&gt;% column_spec(4, width = &quot;5cm&quot;)</code></pre>
@@ -125,10 +125,10 @@ Value_fact
 <tbody>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag00_high_decr
@@ -139,10 +139,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag00_high_incr
@@ -153,24 +153,24 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag00_low_decr
 </td>
 <td style="text-align:center;width: 5cm; ">
-Out
+In
 </td>
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag00_low_incr
@@ -181,24 +181,24 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag00_mid_decr
 </td>
 <td style="text-align:center;width: 5cm; ">
-In
+Out
 </td>
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag00_mid_incr
@@ -209,10 +209,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag06_high_decr
@@ -223,10 +223,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag06_high_incr
@@ -237,10 +237,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag06_low_decr
@@ -251,10 +251,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag06_low_incr
@@ -265,27 +265,13 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag06_mid_decr
-</td>
-<td style="text-align:center;width: 5cm; ">
-Out
-</td>
-</tr>
-<tr>
-<td style="text-align:center;width: 5cm; ">
-2018-11-01
-</td>
-<td style="text-align:center;width: 4cm; ">
--0.0962652
-</td>
-<td style="text-align:center;width: 8cm; ">
-ff_10 : lag06_mid_incr
 </td>
 <td style="text-align:center;width: 5cm; ">
 In
@@ -293,10 +279,24 @@ In
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
+</td>
+<td style="text-align:center;width: 8cm; ">
+ff_10 : lag06_mid_incr
+</td>
+<td style="text-align:center;width: 5cm; ">
+Out
+</td>
+</tr>
+<tr>
+<td style="text-align:center;width: 5cm; ">
+2019-03-01
+</td>
+<td style="text-align:center;width: 4cm; ">
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag12_high_decr
@@ -307,10 +307,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag12_high_incr
@@ -321,10 +321,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag12_low_decr
@@ -335,10 +335,10 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag12_low_incr
@@ -349,30 +349,30 @@ Out
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag12_mid_decr
 </td>
 <td style="text-align:center;width: 5cm; ">
-In
+Out
 </td>
 </tr>
 <tr>
 <td style="text-align:center;width: 5cm; ">
-2018-11-01
+2019-03-01
 </td>
 <td style="text-align:center;width: 4cm; ">
--0.0962652
+0.0246135
 </td>
 <td style="text-align:center;width: 8cm; ">
 ff_10 : lag12_mid_incr
 </td>
 <td style="text-align:center;width: 5cm; ">
-Out
+In
 </td>
 </tr>
 </tbody>
@@ -492,7 +492,6 @@ So, what do these plots tell us about the yield curve? Does the yield curve fore
 <div id="limitations" class="section level3">
 <h3>Limitations</h3>
 <p>Every analytical technique has its advantages and disadvantages. Discretisation or binning is useful in that it identifies nonlinearities, removes outliers, and is easy to interpret. However, the approach used above has some drawbacks. One drawback is that by design it peaks into the future. The measurement of tercile barriers in the 1970’s, for example, uses data from the 2000’s. A more robust approach would be to use a rolling starting point window to estimate the terciles for binning.</p>
-<p>Every analytical technique has its advantages and disadvantages. Discretisation or binning is useful in that it identifies nonlinearities, removes outliers, and is easy to interpret. However, the approach used above has some drawbacks. One drawback is that by design it peaks into the future. The measurement of tercile barriers in the 1970s, for example, uses data from the 2000s. A more robust approach would be to use a rolling starting point window to estimate the terciles for binning.</p>
-<p>In addition, it may be that tercile bins are not suitable cut-offs, perhaps the traditional inversion of the yield curve or another level is an appropriate cut-off. We have not investigated this in the current analysis. Despite these limitations, this approach provides a high-level overview of the relationship between the level of the yield curve and subsequent stock market returns. This information can be useful to create more complex models, for example, to inform relevant dummy variables in a regression.</p>
+<p>In addition, it may be that tercile bins are not suitable cut-offs, perhaps the traditional inversion of the yield curve or another level is an appropriate cut-off. We have not investigated this in the current analysis. Despite these limitations, this approach provides a high-level overview of the relationship between the level of the yield curve and subsequent stock market returns. This information can be useful to create more complex models, for example, to inform relevant dummy variables in a regression model.</p>
 <p>The above code that generates the histogram and the line plots will of course be useful when analysing other time series, to that end they have been written into a function, the trans.plot() functions detailed <a href="https://github.com/Brent-Morrison/Custom_functions/blob/master/Function_script.R">here</a>.</p>
 </div>

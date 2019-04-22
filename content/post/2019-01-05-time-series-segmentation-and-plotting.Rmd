@@ -29,7 +29,7 @@ library("scales")
 econ_fin_data <- readRDS("econ_fin_data.Rda")
 sp_shade      <- readRDS("sp_shade.Rda")
 ```
-Next, we calculate the yield curve by subtracting the Federal funds rate from the 10-year Treasury rate. We then categorize the yield curve into bins that represent specific levels and change values. The following code block breaks down the time series of the yield curve into 6 bins. The yield curve level is divided into terciles or three bins with the same number of months. The change in level is categorized as either a rise or a fall (positive or negative 6-month change). The combination of these two is then lagged by 6 months and 12 months, resulting in a total of 18 bins.  Three bins will be triggered at any point in time.
+Next, we calculate the yield curve by subtracting the Federal funds rate from the 10-year Treasury rate. We then categorize the yield curve into bins that represent specific levels and change values. The following code block breaks down the time series of the yield curve into 6 bins. The yield curve level is divided into terciles or three bins with the same number of months. The change in level is categorised as either a rise or a fall (positive or negative 6-month change). The combination of these two is then lagged by 6 months and 12 months, resulting in a total of 18 bins.  Three bins will be triggered at any point in time.
 
 ```{r code_chunk_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # create the yield curve time series (designated "ff_10")
@@ -78,7 +78,7 @@ str(x2.1)
 ```
 Three strings are returned, the current and two lagged values. Note the format of these strings, this will be used later in the histogram. The first five characters indicate whether the bin series is current or delayed, the middle three characters indicate the level tercile, and finally we have the change in level indicator.   
 
-Remember that we would like to draw a histogram of the subsequent S&P 500 returns. To enable segmentation for the histogram, we need to create dummy variables for each of the 18 bins. This is where the Caret package comes in handy.
+Remember that we would like to draw a histogram of the subsequent S&P 500 returns. To enable segmentation for the histogram, we need to create dummy variables for each of the 18 bins. This is where the caret package comes in handy.
 ```{r code_chunk_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # dummy variables for each (current & lagged) combined level / change factor
 x3 <- predict(dummyVars(" ~ x1_lag00", data = x2), newdata = x2)
@@ -103,11 +103,11 @@ x8 <- full_join(x6, x7, by  = 'rowIndex') %>%
   # rename indicator
   mutate(Indicator = str_replace(Indicator, "x1_", "ff_10 : "))
 ```
-We now have a table with 18 records for each date, six for each of the current and two delayed level/change bins as previously defined. Three of them are labelled "In" (one of the six of each of the current and two lagged values) and represent the status of the yield curve at that time. All other records are labelled "Out".  These are our dummy variables.  The table also contains the monthly return of the S&P 500 for the month following the designation. The histogram is derived from this table.
+We now have a table with 18 records for each date, six for each of the current and two delayed level/change bins as previously defined. Three of them are labelled "In", one of the six of each of the current and two lagged values, these represent the status of the yield curve at that date. All other records are labelled "Out".  These are our dummy variables.  The table also contains the monthly return of the S&P 500 for the month following the designation. The histogram is derived from this table.
 ```{r code_chunk_5, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, results="asis"}
 library("knitr")
 library("kableExtra")
-x8 %>% filter(date == "2018-11-01") %>% select(date, fwd_rtn_m, Indicator, Value_fact) %>% 
+x8 %>% filter(date == "2019-03-01") %>% select(date, fwd_rtn_m, Indicator, Value_fact) %>% 
   kable(align = "c") %>%  kable_styling(bootstrap_options = c("striped", "responsive")) %>%
   column_spec(1, width = "5cm") %>% column_spec(2, width = "4cm") %>% 
   column_spec(3, width = "8cm") %>% column_spec(4, width = "5cm")
@@ -225,7 +225,7 @@ So, what do these plots tell us about the yield curve? Does the yield curve fore
 
 Based on the histogram results, if the current value of the yield curve (defined as the Fed fund rate minus the 10-year Treasury rate) is low and rising (the facet called "lag00_low_incr"), we want to stay out of the market, the average of subsequent months returns are almost 1% lower than in all other periods.  We are confident that this is a significant difference based on the results of the Kolmogorov Smirnov test, this test yields a p-value of 0.6% (the null hypothesis that the two samples were taken from the same distribution is rejected if the p-value is lower than your significance level - typically set to 5%).  
 
-If we look at the yield curve plot, we can confirm this visually. For example, it seems that the drawdowns in 2000 and 2008 are preceded by an increase in the yield curve from a low level. The second most significant bin for the current value of the yield curve is that when the level is in the mid tercile and the change is decreasing, the subsequent returns are 0.75% higher with a K-S p value of 3.7%. By way of comparison, the average monthly returns over the period under review are   `r  percent(round(mean(econ_fin_data$rtn_m[-length(econ_fin_data$rtn_m)][-1]),4))`.  
+If we look at the yield curve plot, we can confirm this visually. For example, it seems that the drawdowns in 2000 and 2008 are preceded by an increase in the yield curve from a low level.  The second most significant bin for the current value of the yield curve is that when the level is in the mid tercile and the change is decreasing, the subsequent returns are 0.75% higher with a K-S p value of 3.7%. By way of comparison, the average monthly returns over the period under review are   `r  percent(round(mean(econ_fin_data$rtn_m[-length(econ_fin_data$rtn_m)][-1]),4))`.  
 
 Looking at lagged values of the yield curve, there are four situations that would lead us to take a view on the market:  
 1. When the 6-month lagged yield curve is low and increasing (lower subsequent returns)  
@@ -237,8 +237,6 @@ Looking at lagged values of the yield curve, there are four situations that woul
 ### Limitations
 Every analytical technique has its advantages and disadvantages. Discretisation or binning is useful in that it identifies nonlinearities, removes outliers, and is easy to interpret. However, the approach used above has some drawbacks. One drawback is that by design it peaks into the future.  The measurement of tercile barriers in the 1970's, for example, uses data from the 2000's. A more robust approach would be to use a rolling starting point window to estimate the terciles for binning.  
 
-Every analytical technique has its advantages and disadvantages. Discretisation or binning is useful in that it identifies nonlinearities, removes outliers, and is easy to interpret. However, the approach used above has some drawbacks. One drawback is that by design it peaks into the future.  The measurement of tercile barriers in the 1970s, for example, uses data from the 2000s. A more robust approach would be to use a rolling starting point window to estimate the terciles for binning.  
-
-In addition, it may be that tercile bins are not suitable cut-offs, perhaps the traditional inversion of the yield curve or another level is an appropriate cut-off. We have not investigated this in the current analysis. Despite these limitations, this approach provides a high-level overview of the relationship between the level of the yield curve and subsequent stock market returns. This information can be useful to create more complex models, for example, to inform relevant dummy variables in a regression.  
+In addition, it may be that tercile bins are not suitable cut-offs, perhaps the traditional inversion of the yield curve or another level is an appropriate cut-off. We have not investigated this in the current analysis. Despite these limitations, this approach provides a high-level overview of the relationship between the level of the yield curve and subsequent stock market returns. This information can be useful to create more complex models, for example, to inform relevant dummy variables in a regression model.  
 
 The above code that generates the histogram and the line plots will of course be useful when analysing other time series, to that end they have been written into a function, the trans.plot() functions detailed [here](https://github.com/Brent-Morrison/Custom_functions/blob/master/Function_script.R). 
