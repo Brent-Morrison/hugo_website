@@ -1,0 +1,524 @@
+---
+title: IFRS9 disclosures (part 1)
+author: Brent Morrison
+date: '2019-06-03'
+slug: ifrs9-disclosures
+categories:
+  - Accounting
+tags:
+  - Accounting
+  - R
+description: ''
+topics: []
+---
+
+
+
+<p>This series of posts will deal with the preparation of <em>International Financial Reporting Standard 9 - Financial Instruments</em> (“IFRS9”) disclosures for a bank. In particular, the reconciliation tables that are required to account for movements in loan balances and expected credit losses over a reporting period. Why do we want to do this?</p>
+<p>The reconciliation tables disclose a flow of loan balances over time, accounting for draw downs, repayments and other cash flows. This requires complex data transformation and data modelling which can be executed in R using the dplyr package. Preparing the IFRS9 disclosures on a novel data set (detail below) will provide practice in data exploration, transformation and modelling skills using R. In addition, this will also provides an excellent opportunity to learn the same skills in Python using the pandas library.</p>
+<div id="the-problem-statement" class="section level3">
+<h3>The problem statement</h3>
+<p>We have been asked to prepare the IFRS9 figures for a bank (let’s call it “Bank1000”). Bank1000 will exclusively provide all debt financing to the top 1,000 US companies by market capitalisation. Therefore, when a company leaves the top 1,000 stocks by market capitalisation, it pays back its debt to Bank1000 and refinances its debt with another bank. Similarly, if a company joins the top 1,000 and has debt, it refinances that debt with Bank1000.</p>
+<p>Bank1000 must comply with IFRS9 and related disclosures. This means it must divide its loan portfolio of 1,000 borrowers into 3 risk stages, and having chosen to use the individual as opposed to the collective assessment method, estimate an expected credit loss (“ECL”) for each loan.</p>
+<p>In addition, Bank1000 is required to prepare the disclosures mentioned above, providing a reconciliation of the opening and closing ECL and loan balance amounts. These disclosures are to be segmented by the 3 risk stages detailing transfers between stages.</p>
+<p>The requirements of IFRS 9 are summarised by the BIS, <a href="https://www.bis.org/fsi/fsisummaries/ifrs9.pdf">IFRS 9 and expected loss provisioning - Executive Summary</a> (pdf). The reconciliation disclosures mentioned above have come to resemble something like the table format below <a href="https://www.ey.com/Publication/vwLUAssets/ey-ctools-good-bank-ifrs-9-nov-2017/$FILE/ey-ctools-good-bank-ifrs-9-nov-2017.pdf">EY Illustrative disclosures for IFRS9</a>.</p>
+<p><img src="/IFRS9ey.png" /></p>
+<p>In order to perform this exercise we will need fundamental data on U.S. companies. The remainder of this post will deal with data acquisition and exploratory data analysis. Future posts will look at creating an expected credit loss balance and risk stage, and finally modelling the disclosures referred to above.</p>
+</div>
+<div id="financial-data" class="section level2">
+<h2>Financial data</h2>
+<p>It is well known that it is difficult to obtain free fundamental data on US companies. Fortunately the authors of <a href="https://simfin.com/">SimFin</a> want to change this and have granted access to data collected through automated web scraping processes. SimFin allows for a bulk download of price and fundamental data for around 2,000 U.S. companies. I have saved this bulk download to my local hard drive (this data was downloaded in October 2018).</p>
+<p>Let’s get started exploring this data. Load the required packages,</p>
+<pre class="r"><code>library(&quot;tidyverse&quot;)
+library(&quot;lubridate&quot;)
+library(&quot;tibbletime&quot;)
+library(&quot;tsibble&quot;)
+library(&quot;scales&quot;)
+library(&quot;DescTools&quot;)
+library(&quot;ggiraphExtra&quot;)
+library(&quot;cowplot&quot;)
+library(&quot;kableExtra&quot;)</code></pre>
+<p>read the data downloaded from the SimFin website,</p>
+<pre class="r"><code># Read from csv - readr
+simfin &lt;- as_tibble(read_csv(file=&quot;C:/Users/brent/Documents/R/R_import/output-comma-narrow.csv&quot;)) %&gt;% 
+  
+  # Convert date and rename Industry code
+  rename_all(list(~str_replace_all(., &quot; &quot;, &quot;.&quot;))) %&gt;% 
+  rename(Industry = Company.Industry.Classification.Code)</code></pre>
+<p>and view the data structure.</p>
+<pre class="r"><code>head(simfin)</code></pre>
+<pre><code>## # A tibble: 6 x 6
+##   Ticker SimFin.ID Industry Indicator.Name     publish.date Indicator.Value
+##   &lt;chr&gt;      &lt;int&gt;    &lt;int&gt; &lt;chr&gt;              &lt;date&gt;                 &lt;dbl&gt;
+## 1 ICUI      550676   106003 Revenues           2007-10-25             44.9 
+## 2 ICUI      550676   106003 COGS               2007-10-25             25.5 
+## 3 ICUI      550676   106003 SG&amp;A               2007-10-25             11.5 
+## 4 ICUI      550676   106003 R&amp;D                2007-10-25              2.23
+## 5 ICUI      550676   106003 EBIT               2007-10-25              5.65
+## 6 ICUI      550676   106003 Interest expense,~ 2007-10-25              0</code></pre>
+<p>There are just over 11 million records.</p>
+<pre class="r"><code>glimpse(simfin)</code></pre>
+<pre><code>## Observations: 11,069,838
+## Variables: 6
+## $ Ticker          &lt;chr&gt; &quot;ICUI&quot;, &quot;ICUI&quot;, &quot;ICUI&quot;, &quot;ICUI&quot;, &quot;ICUI&quot;, &quot;ICUI&quot;...
+## $ SimFin.ID       &lt;int&gt; 550676, 550676, 550676, 550676, 550676, 550676...
+## $ Industry        &lt;int&gt; 106003, 106003, 106003, 106003, 106003, 106003...
+## $ Indicator.Name  &lt;chr&gt; &quot;Revenues&quot;, &quot;COGS&quot;, &quot;SG&amp;A&quot;, &quot;R&amp;D&quot;, &quot;EBIT&quot;, &quot;In...
+## $ publish.date    &lt;date&gt; 2007-10-25, 2007-10-25, 2007-10-25, 2007-10-2...
+## $ Indicator.Value &lt;dbl&gt; 44.8680, 25.5020, 11.4850, 2.2340, 5.6470, 0.0...</code></pre>
+<p>Attributes reported on are as follows.</p>
+<pre class="r"><code>unique(simfin$Indicator.Name)</code></pre>
+<pre><code>##  [1] &quot;Revenues&quot;                         &quot;COGS&quot;                            
+##  [3] &quot;SG&amp;A&quot;                             &quot;R&amp;D&quot;                             
+##  [5] &quot;EBIT&quot;                             &quot;Interest expense, net&quot;           
+##  [7] &quot;Abnormal Gains/Losses&quot;            &quot;Income Taxes&quot;                    
+##  [9] &quot;Net Income from Discontinued Op.&quot; &quot;Net Profit&quot;                      
+## [11] &quot;Gross Margin&quot;                     &quot;Operating Margin&quot;                
+## [13] &quot;Net Profit Margin&quot;                &quot;Common Shares Outstanding&quot;       
+## [15] &quot;Avg. Basic Shares Outstanding&quot;    &quot;Avg. Diluted Shares Outstanding&quot; 
+## [17] &quot;Dividends&quot;                        &quot;Cash and Cash Equivalents&quot;       
+## [19] &quot;Receivables&quot;                      &quot;Current Assets&quot;                  
+## [21] &quot;Net PP&amp;E&quot;                         &quot;Intangible Assets&quot;               
+## [23] &quot;Goodwill&quot;                         &quot;Total Noncurrent Assets&quot;         
+## [25] &quot;Total Assets&quot;                     &quot;Short term debt&quot;                 
+## [27] &quot;Accounts Payable&quot;                 &quot;Current Liabilities&quot;             
+## [29] &quot;Long Term Debt&quot;                   &quot;Total Noncurrent Liabilities&quot;    
+## [31] &quot;Total Liabilities&quot;                &quot;Preferred Equity&quot;                
+## [33] &quot;Share Capital&quot;                    &quot;Treasury Stock&quot;                  
+## [35] &quot;Retained Earnings&quot;                &quot;Equity Before Minorities&quot;        
+## [37] &quot;Minorities&quot;                       &quot;Total Equity&quot;                    
+## [39] &quot;Depreciation &amp; Amortisation&quot;      &quot;Change in Working Capital&quot;       
+## [41] &quot;Cash From Operating Activities&quot;   &quot;Net Change in PP&amp;E &amp; Intangibles&quot;
+## [43] &quot;Cash From Investing Activities&quot;   &quot;Cash From Financing Activities&quot;  
+## [45] &quot;Net Change in Cash&quot;               &quot;Current Ratio&quot;                   
+## [47] &quot;Liabilities to Equity Ratio&quot;      &quot;Debt to Assets Ratio&quot;            
+## [49] &quot;EBITDA&quot;                           &quot;Free Cash Flow&quot;                  
+## [51] &quot;Return on Equity&quot;                 &quot;Return on Assets&quot;                
+## [53] &quot;Share Price&quot;                      &quot;Market Capitalisation&quot;           
+## [55] &quot;EV / Sales&quot;                       &quot;Book to Market&quot;                  
+## [57] &quot;Operating Income / EV&quot;            &quot;Enterprise Value&quot;                
+## [59] &quot;EV / EBITDA&quot;</code></pre>
+<p>Let’s commence exploring this data by performing some checks. The code below looks for duplicates across <code>Ticker</code>, <code>Indicator.Name</code> and <code>publish.date</code>.</p>
+<pre class="r"><code>df.dupes.1 &lt;- simfin %&gt;% group_by(Ticker, Indicator.Name, publish.date) %&gt;% 
+  filter(n() &gt; 1) %&gt;% arrange(Ticker, Indicator.Name, publish.date)
+
+head(df.dupes.1)</code></pre>
+<pre><code>## # A tibble: 6 x 6
+## # Groups:   Ticker, Indicator.Name, publish.date [3]
+##   Ticker SimFin.ID Industry Indicator.Name     publish.date Indicator.Value
+##   &lt;chr&gt;      &lt;int&gt;    &lt;int&gt; &lt;chr&gt;              &lt;date&gt;                 &lt;dbl&gt;
+## 1 AGN       442340   106005 Abnormal Gains/Lo~ 2014-08-05                0 
+## 2 AGN        61474   106005 Abnormal Gains/Lo~ 2014-08-05                0 
+## 3 AGN       442340   106005 Abnormal Gains/Lo~ 2014-11-05                0 
+## 4 AGN        61474   106005 Abnormal Gains/Lo~ 2014-11-05                0 
+## 5 AGN       442340   106005 Accounts Payable   2014-08-05              300 
+## 6 AGN        61474   106005 Accounts Payable   2014-08-05             2443.</code></pre>
+<p>There are multiple stocks with the same ticker. For example the entries under ticker ARMK (not shown above but identified after interrogating the underlying data frame) are distinguished by SimFin ID. An internet search on this ticker shows a de-listed stock labelled “ARMK.RU”. We can therefore conclude that our data genuinely contains multiple tickers and that these are distinguished by the SimFin ID.</p>
+<p>Let’s re-run the analysis including the <code>SimFin.ID</code> attribute in the group by clause.</p>
+<pre class="r"><code># Convert date to end of month
+df.dupes.2 &lt;- simfin %&gt;% group_by(Ticker, SimFin.ID, Indicator.Name, publish.date) %&gt;% 
+  filter(n() &gt; 1) %&gt;% arrange(Ticker, SimFin.ID, Indicator.Name, publish.date)
+
+head(df.dupes.2)</code></pre>
+<pre><code>## # A tibble: 0 x 6
+## # Groups:   Ticker, SimFin.ID, Indicator.Name, publish.date [0]
+## # ... with 6 variables: Ticker &lt;chr&gt;, SimFin.ID &lt;int&gt;, Industry &lt;int&gt;,
+## #   Indicator.Name &lt;chr&gt;, publish.date &lt;date&gt;, Indicator.Value &lt;dbl&gt;</code></pre>
+<p>As expected there are no duplicates across this cohort of attributes.</p>
+<p>Next, let’s check that absent the <code>SimFin.ID</code>, the indicator value is different. This will verify that the <code>SimFin.ID</code> is in fact differentiating stocks and not creating duplicates itself.</p>
+<pre class="r"><code>df.dupes.3 &lt;- simfin %&gt;% filter(Indicator.Value != 0) %&gt;% group_by(Ticker, Indicator.Name, publish.date, Indicator.Value) %&gt;% 
+  filter(n() &gt; 1) %&gt;% arrange(Ticker, Indicator.Name, publish.date)
+
+head(df.dupes.3)</code></pre>
+<pre><code>## # A tibble: 6 x 6
+## # Groups:   Ticker, Indicator.Name, publish.date, Indicator.Value [3]
+##   Ticker SimFin.ID Industry Indicator.Name publish.date Indicator.Value
+##   &lt;chr&gt;      &lt;int&gt;    &lt;int&gt; &lt;chr&gt;          &lt;date&gt;                 &lt;dbl&gt;
+## 1 AGN       442340   106005 Share Price    2008-12-26              23.9
+## 2 AGN        61474   106005 Share Price    2008-12-26              23.9
+## 3 AGN       442340   106005 Share Price    2008-12-29              24.4
+## 4 AGN        61474   106005 Share Price    2008-12-29              24.4
+## 5 AGN       442340   106005 Share Price    2008-12-30              25.2
+## 6 AGN        61474   106005 Share Price    2008-12-30              25.2</code></pre>
+<p>It appears that identical data is appended to different <code>Ticker</code> / <code>SimFin.ID</code> combinations. This indicates that one instance of the value returned is incorrect. Ideally we want to exclude known incorrect values, however in this situation we do not know which record to exclude. We will proceed on the basis that the market capitalisation filtering performed at a subsequent step will exclude the incorrect data.</p>
+<p>Let’s get an idea of the number of stocks returned. The number of distinct stocks returned on an aggregated monthly basis is plotted below.</p>
+<pre class="r"><code># Convert date to end of month &amp; count stocks by month
+df.plot1 &lt;- simfin %&gt;% mutate(me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  select(me.date, Ticker, SimFin.ID) %&gt;% group_by(me.date) %&gt;% 
+  summarise(stock.count = n_distinct(Ticker, SimFin.ID, na.rm = TRUE))
+
+ggplot(data = df.plot1, aes(x = me.date, y = stock.count)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  labs(title = &quot;Count of stocks returned by SimFin bulk download&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank(),
+        plot.caption = element_text(size = 8, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-02-10-ifrs9-disclosures_files/figure-html/code_chunk_10-1.png" width="672" /></p>
+<p>The count of stocks reaches circa 1,300 starting 2009 and gradually increases thereafter (we will ignore pre 2009 due to the count being significantly lower). The count appears to be around 100 higher on quarter end months during the years 2011 through 2015. Let’s investigate the driver of this. The code below selects all stocks with data in the months of February 2014 and March 2014. We then filter for stocks that are not in both months.</p>
+<pre class="r"><code>df.qtrend &lt;- simfin %&gt;% mutate(me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  filter(between(me.date, as.Date(&quot;2014-02-28&quot;), as.Date(&quot;2014-03-31&quot;))) %&gt;% 
+  select(me.date, Ticker) %&gt;% distinct() %&gt;% mutate(value = &quot;present&quot;) %&gt;% spread(me.date, value) %&gt;% 
+  filter(is.na(`2014-02-28`) | is.na(`2014-03-31`))
+#  Dimensions and first 5 records for each category
+dim(df.qtrend)</code></pre>
+<pre><code>## [1] 185   3</code></pre>
+<pre class="r"><code>df.qtrend %&gt;% group_by(`2014-02-28`) %&gt;% top_n(-5, Ticker)</code></pre>
+<pre><code>## # A tibble: 10 x 3
+## # Groups:   2014-02-28 [2]
+##    Ticker     `2014-02-28` `2014-03-31`
+##    &lt;chr&gt;      &lt;chr&gt;        &lt;chr&gt;       
+##  1 ACPW       &lt;NA&gt;         present     
+##  2 ADVM       &lt;NA&gt;         present     
+##  3 AGIO       &lt;NA&gt;         present     
+##  4 ALLY       &lt;NA&gt;         present     
+##  5 AMCI       &lt;NA&gt;         present     
+##  6 BXRO       present      &lt;NA&gt;        
+##  7 CK00007861 present      &lt;NA&gt;        
+##  8 DLTH       present      &lt;NA&gt;        
+##  9 FLWD       present      &lt;NA&gt;        
+## 10 LEN        present      &lt;NA&gt;</code></pre>
+<p>Of the 185 cases there are 168 that have data in March 2014 and no data in February. Conversely there are 17 cases with data in February but not in March. Let’s take a case from each of the categories identified above and inspect the attributes returned when they are present.</p>
+<pre class="r"><code>simfin %&gt;% filter(Ticker %in% c(&#39;ACPW&#39;, &#39;BXRO&#39;), 
+           between(publish.date, as.Date(&quot;2014-02-01&quot;), as.Date(&quot;2014-03-31&quot;))) %&gt;% 
+  select(Indicator.Name) %&gt;% distinct(Indicator.Name)</code></pre>
+<pre><code>## # A tibble: 51 x 1
+##    Indicator.Name           
+##    &lt;chr&gt;                    
+##  1 Common Shares Outstanding
+##  2 Revenues                 
+##  3 COGS                     
+##  4 SG&amp;A                     
+##  5 R&amp;D                      
+##  6 EBIT                     
+##  7 EBITDA                   
+##  8 Interest expense, net    
+##  9 Abnormal Gains/Losses    
+## 10 Income Taxes             
+## # ... with 41 more rows</code></pre>
+<p>Inspecting the underlying object reveals that there is no price or market capitalisation data available for these stocks. If there are certain stocks that have only fundamental data returned, it makes sense that more records are returned on quarter end dates when the prior quarters results are published. We will keep this lack of price data in mind as we progress.</p>
+<div id="data-periodicity" class="section level3">
+<h3>Data periodicity</h3>
+<p>Visual inspecting of the raw SimFin data via the variable explorer reveals that the share price and market capitalisation are returned on a daily basis while the fundamental data is returned on a quarterly basis.</p>
+<p>Let’s see if we can confirm this observation. We expect that an average of 4 data points will be returned per annum for the fundamental data attributes since these are returned quarterly. We expect circa 250 price and market capitalisation data points per annum since these are returned on weekdays.</p>
+<pre class="r"><code># Convert date to year, filter for full years post 2008
+df.plot2 &lt;- simfin %&gt;% 
+  mutate(ye.date = year(publish.date), 
+         type = case_when(Indicator.Name %in% c(&quot;Share Price&quot;, &quot;Market Capitalisation&quot;) ~ &quot;price&quot;, 
+                          Indicator.Name %in% c(&quot;Book to Market&quot;, &quot;Total Equity&quot;, &quot;Long Term Debt&quot;, &quot;Short term debt&quot;, &quot;Enterprise Value&quot;, &quot;Total Assets&quot;, &quot;Intangible Assets&quot;, &quot;Revenues&quot;, &quot;Net Profit&quot;, &quot;Total Noncurrent Assets&quot;, &quot;Total Noncurrent Liabilities&quot;, &quot;Depreciation &amp; Amortisation&quot;) ~ &quot;fundamental&quot;,
+                          TRUE ~ &quot;not required&quot;)) %&gt;% 
+  filter(type %in% c(&quot;price&quot;, &quot;fundamental&quot;),
+         ye.date &gt;= &quot;2010&quot; &amp; ye.date &lt;= &quot;2017&quot;) %&gt;% 
+  # Count stocks by month &amp; ticker
+  group_by(ye.date, Indicator.Name, Ticker, type) %&gt;% summarise(value.count = n()) %&gt;%
+  group_by(ye.date, Indicator.Name, type) %&gt;% summarise(mean.count = mean(value.count)) %&gt;% ungroup()
+
+df.plot2.f &lt;- ggplot(data = df.plot2 %&gt;% filter(type == &quot;fundamental&quot;), 
+  aes(x = Indicator.Name, y = mean.count)) +
+  geom_col() + coord_flip() +
+  facet_wrap(~ye.date, nrow = 2) +
+  labs(title = &quot;Fundamental data&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank(),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))
+
+df.plot2.p &lt;- ggplot(data = df.plot2 %&gt;% filter(type == &quot;price&quot;), 
+  aes(x = Indicator.Name, y = mean.count)) +
+  geom_col() + coord_flip() +
+  facet_wrap(~ye.date, nrow = 2) +
+  labs(title = &quot;Price data&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90))
+
+plot_grid(df.plot2.p, df.plot2.f, align = c(&quot;h&quot;))</code></pre>
+<p><img src="/post/2019-02-10-ifrs9-disclosures_files/figure-html/code_chunk_13-1.png" width="672" /></p>
+<p>There are on average 3.8 fundamental data attribute returned per stock per year. This is in line with expectations, the count is slightly less than 4 quarterly data points reflecting the impact of de-listed stocks.</p>
+<p>There are on average 250 share price data points returned for each stock per year. This is in line with expectation. There are on average 300 market capitalisation data points per stock per year. This exceeds the stock price data points and requires looking into.</p>
+<pre class="r"><code>df.check.att.1 &lt;- simfin %&gt;%
+  filter(publish.date &gt;= as.Date(&quot;2010-01-01&quot;) &amp; publish.date &lt;= as.Date(&quot;2010-12-31&quot;),
+         Indicator.Name %in% c(&quot;Share Price&quot;, &quot;Market Capitalisation&quot;)) %&gt;% 
+  # Count stocks by month &amp; ticker
+  group_by(Indicator.Name, Ticker,SimFin.ID) %&gt;% summarise(day.count = n()) %&gt;% ungroup() %&gt;% 
+  spread(Indicator.Name, day.count) %&gt;% 
+  filter(`Market Capitalisation` &gt; 300 &amp; `Share Price` &lt; 260)
+
+head(df.check.att.1, 10)</code></pre>
+<pre><code>## # A tibble: 10 x 4
+##    Ticker SimFin.ID `Market Capitalisation` `Share Price`
+##    &lt;chr&gt;      &lt;int&gt;                   &lt;int&gt;         &lt;int&gt;
+##  1 A          45846                     310           252
+##  2 AAP       184955                     310           252
+##  3 AAPL      111052                     310           252
+##  4 ABC       187024                     310           252
+##  5 ABCD      358762                     310           252
+##  6 ABT        63877                     310           252
+##  7 ACC       445593                     310           252
+##  8 ACGL      445596                     310           252
+##  9 ACI       646016                     310           252
+## 10 ACLS      670942                     310           252</code></pre>
+<p>Let’s pick one of these tickers and determine the days on which market capitalisation is being returned and the share price is not.</p>
+<pre class="r"><code>df.check.att.2 &lt;- simfin %&gt;%
+  filter(publish.date &gt;= as.Date(&quot;2010-01-01&quot;) &amp; publish.date &lt;= as.Date(&quot;2010-12-31&quot;),
+         Indicator.Name %in% c(&quot;Share Price&quot;, &quot;Market Capitalisation&quot;),
+         Ticker == &quot;AAPL&quot;) %&gt;% 
+  spread(Indicator.Name, Indicator.Value) %&gt;% 
+  filter(is.na(`Market Capitalisation`) | is.na(`Share Price`)) %&gt;% 
+  mutate(weekday = weekdays(publish.date)) %&gt;% 
+  group_by(weekday) %&gt;% summarise(weekday.count = n())
+
+head(df.check.att.2, 30)</code></pre>
+<pre><code>## # A tibble: 5 x 2
+##   weekday  weekday.count
+##   &lt;chr&gt;            &lt;int&gt;
+## 1 Friday               3
+## 2 Monday               3
+## 3 Saturday            29
+## 4 Sunday              22
+## 5 Thursday             1</code></pre>
+<p>It looks like the market capitalisation is being returned on weekends and potentially public holidays. This accounts for the higher number of market cap records being returned.</p>
+</div>
+<div id="concluding-on-exploratory-data-analysis" class="section level3">
+<h3>Concluding on exploratory data analysis</h3>
+<p>The above analysis has identified a number of anomalies in the SimFin bulk data download. This is to be expected as it is a free data set. It should be noted that our exploratory analysis is not exhaustive, so we cannot conclude that additional anomalies do not exist. In spite of these anomalies, and given our objective of using a data set to model accounting disclosures, nothing has been identified that would prevent us from using this data for the task we have set out.</p>
+<p>We will proceed by selecting the largest stocks by market capitalisation.</p>
+</div>
+</div>
+<div id="filtering-by-market-capitalisaton" class="section level2">
+<h2>Filtering by market capitalisaton</h2>
+<p>We want to select the largest 1,000 companies for our loan portfolio and have decided that the indicator for determining size is market capitalization. Let’s plot the average market capitalisation for each month for all stocks in the bulk data download. This will indicate if there are outliers or other problems in the data.</p>
+<pre class="r"><code>df.plot3 &lt;- simfin %&gt;% filter(Indicator.Name == &quot;Market Capitalisation&quot;) %&gt;% 
+  mutate(me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  select(me.date, Indicator.Value) %&gt;% 
+  group_by(me.date) %&gt;% summarise(count = n(), mkt.cap = mean(Indicator.Value)/1000)
+
+ggplot(data = df.plot3, aes(x = me.date, y = mkt.cap)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  ylab(&quot;Market cap (millions)&quot;) +
+  labs(title = &quot;Average market capitalisation for 2,000 largest stocks&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-02-10-ifrs9-disclosures_files/figure-html/code_chunk_16-1.png" width="672" /></p>
+<p>Something is obviously incorrect. For example the average market capitalisation of all stocks in February 2010 is 21 billion, this increases to 69 billion in April and by January 2011 is down to 10 thousand. The count of records for these dates is relatively consistent at 19k, 22k and 31k respectively (as mentioned earlier, market cap is provided daily and there are around 1,500 stocks). The count on the last date is higher, this will reflect the SimFin site collecting more data points over time. This last data point calls the issue out in much starker terms, the individual market capitalisation values must be drastically smaller. Looking over to the forum on the SimFin site finds a number of discussion around this issue. Explanations discussed include incorrect underlying data on the SEC site, unit inconsistency and share count problems.</p>
+<p>Given the state of the market cap data, it doesn’t appear feasible to clean this via some sort of outlier removal technique. Let’s instead infer the market value from the book to market ratio. This will entail dividing the total book equity by the book to market ratio. Note that the code below pads the time series with all month end dates and fills the market cap value for each stock. This is required because the Total Equity and Book to Market values are provided quarterly, while we want to analyse data on a monthly basis.</p>
+<pre class="r"><code>df.plot4 &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&quot;, &quot;Total Equity&quot;)) %&gt;% 
+  
+  # Remove whitespace from values, assign month end date
+  mutate(Indicator.Name = str_replace_all(Indicator.Name,&quot; &quot;,&quot;&quot;),
+         me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  
+  # Transform attributes required for &amp; calculate inferred market cap
+  spread(Indicator.Name, Indicator.Value) %&gt;% 
+  mutate(mkt.cap = TotalEquity / BooktoMarket) %&gt;% filter(is.finite(mkt.cap)) %&gt;% 
+  select(Ticker, me.date, mkt.cap) %&gt;% 
+  
+  # Pad time series for all month end dates
+  complete(me.date = seq(as.Date(&quot;2008-01-01&quot;), as.Date(&quot;2019-01-01&quot;), by = &quot;month&quot;) - 1, Ticker) %&gt;% 
+  
+  # Fill market cap values
+  group_by(Ticker) %&gt;% fill(mkt.cap) %&gt;% ungroup() %&gt;% 
+  
+  # Average market cap
+  group_by(me.date) %&gt;% summarise(count = n(), mkt.cap = mean(mkt.cap, na.rm = TRUE))
+
+# Visualise
+ggplot(data = df.plot4, aes(x = me.date, y = mkt.cap)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  ylab(&quot;Market cap (millions)&quot;) +
+  labs(title = &quot;Average market capitalisation - SimFin bulk data download&quot;,
+       subtitle = &quot;Market capitalisation inferred via book to market ratio and total equity&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-02-10-ifrs9-disclosures_files/figure-html/code_chunk_17-1.png" width="672" /></p>
+<p>We still have some significant outliers. What is going on here? Let’s have a look at February 2017 and June 2011, the largest and most recent of the outliers shown above.</p>
+<pre class="r"><code>simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&quot;, &quot;Total Equity&quot;)) %&gt;% 
+  mutate(Indicator.Name = str_replace_all(Indicator.Name,&quot; &quot;,&quot;&quot;),
+         me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  spread(Indicator.Name, Indicator.Value) %&gt;% 
+  mutate(mkt.cap = TotalEquity / BooktoMarket) %&gt;% filter(is.finite(mkt.cap)) %&gt;% 
+  select(Ticker, me.date, TotalEquity, BooktoMarket, mkt.cap) %&gt;% 
+  filter(me.date == &quot;2017-02-28&quot; | me.date == &quot;2011-06-30&quot;) %&gt;% 
+  group_by(me.date) %&gt;% top_n(10, mkt.cap) %&gt;% arrange(me.date, desc(mkt.cap)) %&gt;% 
+  head(20)</code></pre>
+<pre><code>## # A tibble: 20 x 5
+## # Groups:   me.date [2]
+##    Ticker me.date    TotalEquity BooktoMarket   mkt.cap
+##    &lt;chr&gt;  &lt;date&gt;           &lt;dbl&gt;        &lt;dbl&gt;     &lt;dbl&gt;
+##  1 NAV    2011-06-30       -764       -0.0002  3820000 
+##  2 WMT    2011-06-30      68415        0.442    154680.
+##  3 ORCL   2011-06-30      40245        0.271    148451.
+##  4 MON    2011-06-30      12056        0.352     34260.
+##  5 ACN    2011-06-30       4176.       0.124     33763.
+##  6 HPQ    2011-06-30      41795        1.43      29287.
+##  7 COST   2011-06-30      12541        0.453     27697.
+##  8 ADBE   2011-06-30       5389.       0.350     15385.
+##  9 INTU   2011-06-30       2821        0.188     14997.
+## 10 A      2011-06-30       3961        0.353     11208.
+## 11 HIG    2017-02-28      16903        0.001  16903000 
+## 12 AAPL   2017-02-28     132390        0.201    657349.
+## 13 GOOG   2017-02-28     139036        0.251    554149.
+## 14 BRKA   2017-02-28     296280        0.704    420733.
+## 15 AMZN   2017-02-28      19285        0.0489   394376.
+## 16 FB     2017-02-28      59194        0.156    378720.
+## 17 XOM    2017-02-28     173830        0.549    316515.
+## 18 JPM    2017-02-28     254190        0.819    310291.
+## 19 GE     2017-02-28      80515        0.321    250669.
+## 20 T      2017-02-28     124110        0.507    244938.</code></pre>
+<p>It appears spurious values of the book to market ratio are driving the large values of market cap, refer to tickers NAV and HIG for June 2011 and February 2017 respectively. Let’s try again, winsorizing the book to market ratio over the range 0.1 to 3. This to say that whenever we see a company with a market cap greater the 10 times its book value or less than a third of its book value, we expect the underlying book to market ratio is spurious, and hence limit the value thereof.</p>
+<pre class="r"><code>df.plot5 &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&quot;, &quot;Total Equity&quot;)) %&gt;% 
+  
+  # Remove whitespace from values, assign month end date
+  mutate(Indicator.Name = str_replace_all(Indicator.Name,&quot; &quot;,&quot;&quot;),
+         me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  
+  # Transform attributes required for &amp; calculate inferred market cap
+  # Winsorize book to market ratio
+  spread(Indicator.Name, Indicator.Value) %&gt;% 
+  
+  # Absolute values for correct application of min and max value
+  mutate(mkt.cap = abs(TotalEquity) / Winsorize(abs(BooktoMarket), minval = 0.1, maxval = 3)) %&gt;%
+  filter(is.finite(mkt.cap)) %&gt;% select(Ticker, me.date, mkt.cap) %&gt;% 
+  
+  # Pad time series for all month end dates
+  complete(me.date = seq(as.Date(&quot;2008-01-01&quot;), as.Date(&quot;2019-01-01&quot;), by = &quot;month&quot;) - 1, Ticker) %&gt;% 
+  
+  # Fill market cap values
+  group_by(Ticker) %&gt;% fill(mkt.cap) %&gt;% ungroup() %&gt;% 
+  
+  # Average market cap
+  group_by(me.date) %&gt;% summarise(count = n(), mkt.cap = mean(mkt.cap, na.rm = TRUE))
+
+# Visualise
+ggplot(data = df.plot5, aes(x = me.date, y = mkt.cap)) +
+  geom_line() +
+  geom_point() +
+  scale_y_continuous(labels = comma) +
+  ylab(&quot;Market cap (millions)&quot;) +
+  labs(title = &quot;Average market capitalisation - SimFin bulk data download&quot;,
+       subtitle = &quot;Market capitalisation inferred via winsorised book to market ratio and total equity&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-02-10-ifrs9-disclosures_files/figure-html/code_chunk_19-1.png" width="672" /></p>
+<p>The data post January 2012 looks reasonable with the shape of the market capitalisation plot broadly following the shape of the US market proxied by the S&amp;P 500 index. What about pre 2012? The average balances are drastically higher. Let’s compare the top 10 and bottom 10 stocks by market capitalisation for both February 2010 and February 2012. This may provide an idea as to what is driving the values returned.</p>
+<pre class="r"><code># Market cap construction
+mkt.cap &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&quot;, &quot;Total Equity&quot;)) %&gt;% 
+  mutate(Indicator.Name = str_replace_all(Indicator.Name,&quot; &quot;,&quot;&quot;),
+         me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  spread(Indicator.Name, Indicator.Value) %&gt;% 
+  mutate(mkt.cap = abs(TotalEquity) / Winsorize(abs(BooktoMarket), minval = 0.1, maxval = 3)) %&gt;%
+  filter(is.finite(mkt.cap)) %&gt;% 
+  complete(me.date = seq(as.Date(&quot;2008-01-01&quot;), as.Date(&quot;2019-01-01&quot;), by = &quot;month&quot;) - 1, Ticker)   %&gt;% group_by(Ticker) %&gt;% fill(mkt.cap) %&gt;% ungroup() %&gt;%
+  select(Ticker, me.date, TotalEquity, BooktoMarket, mkt.cap)
+
+#Top 10 by month
+mkt.cap %&gt;% filter(me.date == &quot;2010-02-28&quot; | me.date == &quot;2012-02-29&quot;) %&gt;% 
+  group_by(me.date) %&gt;% top_n(10, mkt.cap) %&gt;% arrange(me.date, desc(mkt.cap)) %&gt;% 
+  head(20)</code></pre>
+<pre><code>## # A tibble: 20 x 5
+## # Groups:   me.date [2]
+##    Ticker me.date    TotalEquity BooktoMarket  mkt.cap
+##    &lt;chr&gt;  &lt;date&gt;           &lt;dbl&gt;        &lt;dbl&gt;    &lt;dbl&gt;
+##  1 BRKA   2010-02-28          NA       NA     1357850 
+##  2 XOM    2010-02-28      115392        0.488  236653.
+##  3 MSFT   2010-02-28          NA       NA      205204.
+##  4 WMT    2010-02-28          NA       NA      166692.
+##  5 AAPL   2010-02-28          NA       NA      163175.
+##  6 PG     2010-02-28          NA       NA      135323.
+##  7 BAC    2010-02-28      231444        1.74   133297.
+##  8 IBM    2010-02-28       22755        0.172  131913.
+##  9 JPM    2010-02-28      165365        1.27   130713.
+## 10 GE     2010-02-28      125136        0.966  129554.
+## 11 AAPL   2012-02-29          NA       NA      369074.
+## 12 XOM    2012-02-29      160744        0.480  334674.
+## 13 MSFT   2012-02-29          NA       NA      206177.
+## 14 BRKA   2012-02-29      180269        0.908  198447.
+## 15 IBM    2012-02-29       20235        0.107  189466.
+## 16 CVX    2012-02-29      122181        0.726  168409.
+## 17 WMT    2012-02-29          NA       NA      167087.
+## 18 GE     2012-02-29      118134        0.721  163893.
+## 19 JNJ    2012-02-29       61366        0.420  146075.
+## 20 PG     2012-02-29          NA       NA      142450.</code></pre>
+<pre class="r"><code># Bottom 10 by month
+mkt.cap %&gt;% filter(me.date == &quot;2010-02-28&quot; | me.date == &quot;2012-02-29&quot;) %&gt;% 
+  group_by(me.date) %&gt;% top_n(-10, mkt.cap) %&gt;% arrange(me.date, desc(mkt.cap)) %&gt;% 
+  head(20)</code></pre>
+<pre><code>## # A tibble: 20 x 5
+## # Groups:   me.date [2]
+##    Ticker me.date    TotalEquity BooktoMarket   mkt.cap
+##    &lt;chr&gt;  &lt;date&gt;           &lt;dbl&gt;        &lt;dbl&gt;     &lt;dbl&gt;
+##  1 LLL    2010-02-28  6660        913079.     2220     
+##  2 PTEN   2010-02-28  2082.            0.942  2209.    
+##  3 BIIB   2010-02-28  6262.          421.     2087.    
+##  4 NFLX   2010-02-28   199.            0.057  1991.    
+##  5 SLM    2010-02-28  5279.            3.07   1760.    
+##  6 SPXC   2010-02-28  1882.            1.18   1592.    
+##  7 TGNA   2010-02-28  1826.            1.21   1514.    
+##  8 ICUI   2010-02-28   265.            0.535   496.    
+##  9 PZZA   2010-02-28   185.            0.607   305.    
+## 10 CLX    2010-02-28    27             0.0041  270     
+## 11 TBTC   2012-02-29    NA            NA         1.18  
+## 12 IMMY   2012-02-29    -1.70         -1.47      1.16  
+## 13 QEBR   2012-02-29    NA            NA         1.12  
+## 14 UOLI   2012-02-29    NA            NA         1.01  
+## 15 CYCA   2012-02-29    NA            NA         0.650 
+## 16 FRZT   2012-02-29    NA            NA         0.542 
+## 17 ZDPY   2012-02-29    NA            NA         0.437 
+## 18 ADTM   2012-02-29    NA            NA         0.232 
+## 19 CMRO   2012-02-29    NA            NA         0.140 
+## 20 RAVE   2012-02-29     0.00631       0.0001    0.0631</code></pre>
+<p>It should be noted that in the tables above, the NA’s are due to the fill function being applied only to the <code>mkt.cap</code> column as opposed to both the <code>TotalEquity</code> and <code>BooktoMarket</code> columns. In terms of the results, the market cap of the top 10 stocks appears to be consistent over the two dates. BRKA is an outlier whereby the book to market ratio returned at 2009-11-06 is 0.0251, this has been winsorised to 0.1 and applied to a book equity value of 135.7 billion, resulting in an inferred market cap of 1.36 trillion. The bottom 10 stocks is a different story however, the 2010 values average around 1.5 billion while the 2012 values are closer to 1 million. I suspect this is due to unit inconsistency.</p>
+<p>We are interested only in the top 1,000 stocks. The analysis above indicates the highest market cap values are relatively correct (relative in the sense that the BRKA outlier referred to above does not invalidate our goal of selecting the top 1,000 stocks). We are not sure if the suspected unit inconsistency for low capitalisation stocks extends to the 1,000th value however. If we can plot a time series of say the 5th and 1,000th values of market capitalisation, and these do not significantly diverge, we can conclude the top 1,000 is relatively correct. This is good enough for our purposes.</p>
+<pre class="r"><code># Market cap construction
+mkt.cap %&gt;% filter(!is.na(mkt.cap)) %&gt;% nest(-me.date) %&gt;% 
+  mutate(fifth = map(data, ~nth(.$mkt.cap, -5L, order_by = .$mkt.cap)),
+         thousandth = map(data, ~nth(.$mkt.cap, -1000L, order_by = .$mkt.cap))) %&gt;% 
+  filter(me.date &gt; &quot;2012-12-31&quot;) %&gt;% select(-data) %&gt;% 
+  gather(key, value, fifth, thousandth) %&gt;% mutate(value = as.numeric(value)) %&gt;% 
+  ggplot(aes(x = me.date, y = value, colour = key)) +
+  facet_grid(key ~ ., scales = &#39;free&#39;) +
+  scale_y_continuous(labels = comma) +
+  ylab(&quot;Market cap (millions)&quot;) +
+  labs(title = &quot;Market capitalisation for the fifth and thousandth largest stock&quot;,
+       subtitle = &quot;Market capitalisation inferred via winsorised book to market ratio and total equity&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  geom_line() +
+  theme_grey() +
+  theme(legend.position = &quot;none&quot;) +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-02-10-ifrs9-disclosures_files/figure-html/code_chunk_21-1.png" width="672" /></p>
+<p>This we can work with. The drift higher in the fifth and thousandth largest stocks mirrors the overall market over the post 2012 period.</p>
+<p>The code block below creates a data frame containing the cut-off points to be used in selecting stocks.</p>
+<pre class="r"><code># Stock market cap filter construction
+mkt.cap.filter &lt;- mkt.cap %&gt;% filter(!is.na(mkt.cap)) %&gt;% nest(-me.date) %&gt;% 
+  mutate(thousandth     = map(data, ~nth(.$mkt.cap, -1000L, order_by = .$mkt.cap)),
+         eighthundredth = map(data, ~nth(.$mkt.cap, -800L, order_by = .$mkt.cap)),
+         sixhundredth   = map(data, ~nth(.$mkt.cap, -600L, order_by = .$mkt.cap)),
+         fourhundredth  = map(data, ~nth(.$mkt.cap, -400L, order_by = .$mkt.cap)),
+         twohundredth   = map(data, ~nth(.$mkt.cap, -200L, order_by = .$mkt.cap))) %&gt;% 
+  filter(me.date &gt; &quot;2012-12-31&quot;) %&gt;% select(-data) %&gt;% unnest()</code></pre>
+</div>
+<div id="conclusion-and-next-steps" class="section level2">
+<h2>Conclusion and next steps</h2>
+<p>The purpose of this post is to source and analysis fundamental data for U.S. companies with a view to using this data to model IFRS9 disclosures. To this end we have downloaded the SimFin bulk data set and explored same noting several data anomalies.</p>
+<p>We have concluded that the raw market capitalisation data is not suitable for determining the top 1,000 stocks, and instead inferred market capitalisation from the book to market ratio and total equity. This data has then been used to create a monthly time series of market cap cut-off points for various quantiles.</p>
+<p>The next post will look at creating an expected credit loss balance and risk stage. This will allow us to conclude with the ultimate aim of modelling the IFRS9 disclosures outlined above.</p>
+</div>
