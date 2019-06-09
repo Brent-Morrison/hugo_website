@@ -20,13 +20,13 @@ IFRS9 is a relatively new accounting standard and the reconciliation tables disc
 
 ### The problem statement
 
-We have been asked to prepare the IFRS9 figures for a bank (let's call it "Bank1000").  Bank1000 will exclusively provide all debt financing to the top 1,000 US companies by market capitalisation.  Therefore, when a company leaves the top 1,000 stocks by market capitalisation, it pays back its debt to Bank1000 and refinances its debt with another bank.  Similarly, if a company joins the top 1,000 and has debt, it refinances that debt with Bank1000.
+We have been asked to prepare the IFRS9 disclosures for a bank (let's call it "Bank1000").  Bank1000 will exclusively provide all debt financing to the top 1,000 US companies by market capitalisation.  Therefore, when a company leaves the top 1,000 stocks by market capitalisation, it pays back its debt to Bank1000 and refinances its debt with another bank.  Similarly, if a company joins the top 1,000 and has debt, it refinances that debt with Bank1000.
 
 Bank1000 must comply with IFRS9 and related disclosures.  This means it must divide its loan portfolio of 1,000 borrowers into 3 risk stages, and having chosen to use the individual as opposed to the collective expected credit loss ("ECL") assessment method, estimate an ECL for each loan.
 
 In addition, Bank1000 is required to prepare the disclosures mentioned above, providing a reconciliation of the opening and closing ECL and loan balance amounts.  These disclosures are to be segmented by the 3 risk stages, detailing transfers between stages.
 
-The requirements of IFRS 9 are nicely summarised by the BIS in this document, [IFRS 9 and expected loss provisioning - Executive Summary](https://www.bis.org/fsi/fsisummaries/ifrs9.pdf) (pdf).  The reconciliation disclosures mentioned above have come to resemble something like the table format below, from [EY Illustrative disclosures for IFRS9](https://www.ey.com/Publication/vwLUAssets/ey-ctools-good-bank-ifrs-9-nov-2017/$FILE/ey-ctools-good-bank-ifrs-9-nov-2017.pdf) (pdf).
+The requirements of IFRS 9 are nicely summarised by the BIS in this document, [IFRS 9 and expected loss provisioning - Executive Summary](https://www.bis.org/fsi/fsisummaries/ifrs9.pdf) (pdf).  The reconciliation disclosures mentioned above have come to resemble something like the table format below, this is from [EY Illustrative disclosures for IFRS9](https://www.ey.com/Publication/vwLUAssets/ey-ctools-good-bank-ifrs-9-nov-2017/$FILE/ey-ctools-good-bank-ifrs-9-nov-2017.pdf) (pdf).
 
 ![](/IFRS9ey.png)
 
@@ -76,7 +76,7 @@ Attributes reported on are as follows.
 unique(simfin$Indicator.Name)
 ```
 
-There are two price related attributes, "Share price" and "Market capitalisation".  The remaining attributes are fundamental or accounting balances and metrics derived therefrom. 
+There are two price related attributes, `Share Price` and `Market Capitalisation`.  The remaining attributes are fundamental or accounting balances and metrics derived therefrom. 
 
 ### Initial checks on the data
 
@@ -87,7 +87,7 @@ df.dupes.1 <- simfin %>% group_by(Ticker, Indicator.Name, publish.date) %>%
 
 head(df.dupes.1)
 ```
-There are multiple stocks with the same ticker.  For example the entries under ticker ARMK (not shown above but identified after interrogating the underlying data frame) are distinguished by `SimFin.ID`.  An internet search on this ticker shows a de-listed stock labelled "ARMK.RU".  We can therefore conclude that our data genuinely contains multiple tickers and that these are distinguished by the `SimFin.ID`. 
+There are multiple stocks with the same ticker.  For example the entries under ticker ARMK (not shown above but identified after interrogating the underlying data frame) are distinguished by `SimFin.ID`.  An internet search on this ticker shows a de-listed stock labelled "ARMK.RU".  It is likely that that our data genuinely contains multiple tickers and that these are distinguished by the `SimFin.ID`. 
 
 Let's re-run the analysis including the `SimFin.ID` attribute in the group by clause.  
 ```{r code_chunk_8, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
