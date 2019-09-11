@@ -1,0 +1,24 @@
+---
+title: Dataquest project - Python basics
+author: Brent Morrison
+date: '2019-09-11'
+slug: dataquest-project-python-basics
+categories:
+  - Python
+tags:
+  - Dataquest
+description: ''
+topics: []
+---
+
+I've recently started the Dataquest - Data Scientist In Python course.  This is an interactive course and requires the completion of guided projects.  The first section of the course is called "Python Introduction".  Here is the guided project associated with this on  [github](https://github.com/Brent-Morrison/Dataquest/blob/master/Guided_Project_Profitable_App_Profiles.ipynb).  In the event that this does not load, apparently quite a [regular occurance](https://github.com/iurisegtovich/PyTherm-applied-thermodynamics/issues/11), here it is via Jupyter's [nbviewer](https://nbviewer.jupyter.org/github/Brent-Morrison/Dataquest/blob/master/Guided_Project_Profitable_App_Profiles.ipynb).
+
+## Thoughts
+
+On reflection, the requirements of this project seemed a little superficial.  All of the analysis could have easily been performed in excel, let alone `pandas` or `dplyr`. Having said that, the requirement to perform analysis without specialised libraries, constructing loops and the like, does focus the mind and does make you put a programming hat on.  That is beneficial.
+
+The project requirements did ask for a narrative around the analysis performed.  The extent of this was left up to the student and I did not go into a lot of detail in this respect.  I am using this part of the course as a general introduction to Python.  My day job requires data analysis report writing so for now I am focusing time on the skills that require development.
+
+The next section of the Dataquest course is titled "Cleaning and Preparing Data in Python".
+
+I'll continue to post these projects as I complete them.
