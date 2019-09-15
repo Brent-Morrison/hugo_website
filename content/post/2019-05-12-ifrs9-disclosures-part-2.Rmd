@@ -14,28 +14,28 @@ topics: []
 
 This post is a continuation of the series initiated [here](https://brentmorrison.netlify.com/post/ifrs9-disclosures/).
 
-Recall our problem imagines we are a bank lending to the largest 1,000 US companies.  This requires us to prepare the IFRS9 disclosures which in turns requires us to estimate an expected credit loss ("ECL") and risk stage.
+Recall our problem imagines we are a bank lending to the largest 1,000 US companies.  This requires the preparation of the IFRS9 disclosures which in turn requires the estimatation an expected credit loss ("ECL") and risk stage.
 
 We have already selected the top 1,000 stocks for analysis, we now need to create an ECL balance and assign a risk stage.
 
-The ECL is a probability weighted estimate of credit losses.  The risk stage is a categorisation based on whether a loan has experienced a significant increase in credit risk since origination or if the loan is credit impaired.  If there has not been a significant increase in credit risk the loan is categorised as Stage 1.  If there has been a significant increase in credit risk the loan is categorised as Stage 2, and if the loan is credit impaired it is categorised as Stage 3.  We are going to estimate the expected credit loss and risk stage via measurements of valuation and default risk.  Stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss.  A high default risk is obviously a natural proxy for expected credit loss - the ECL is designed to reflect default risk.  A low valuation will also proxy credit risk on the basis that should a stock be trading at a significant discount to it's peers, it is likely to be experiencing heightened credit risk.
+The ECL is a probability weighted estimate of credit losses.  The risk stage indicates whether a loan has experienced a significant increase in credit risk since origination or if the loan is credit impaired.  If there has not been a significant increase in credit risk the loan is categorised as Stage 1.  If there has been a significant increase in credit risk the loan is categorised as Stage 2, and if the loan is credit impaired it is categorised as Stage 3.  We are going to estimate the expected credit loss and risk stage via measurements of valuation and default risk.  Stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss.  A high default risk is obviously a natural proxy for expected credit loss - the ECL is designed to reflect default risk.  A low valuation will also proxy credit risk on the basis that should a stock be trading at a significant discount to it's peers, it is likely to be experiencing heightened credit risk.
 
 How will valuation and default risk be assessed?  Valuation will be assessed using the PB-ROE model and default risk via a novel application of the Merton default probability model. Both of these methods will be explained in further detail below.  It should be noted that the PB-ROE model will be applied to groups of similar stocks.  THe similarity of stocks is not going to be assessed via industry or sector membership but rather by similarirty of fundamental characteristics.  This will be determined by applying a clustering algorithm.
 
 This is all going to take some significant data engineering.  In broad terms this will look as follows.
 
-Step 1. Create data attributes / transformations required for subsequent modelling steps.
-Step 2. Cluster stocks into groups based on financial characteristics at specific intervals.
-Step 3. Label clusters based on cluster centre (high, mid, low for each attribute).
-Step 4. Join cluster membership to original data by date / stock and fill forward cluster category to next assessment date. 
-Step 5. For each date and cluster, fit the PB-ROE model and rank stocks based on resultant valuation.
-Step 6. Apply the Merton default probability model and rank stocks by probability of default.
-Step 7. Combine the rankings of the valuation and default models, and assign an ECL and risk stage.
+1. Create financial ratio attributes required for subsequent modelling steps
+2. Assign stocks to like groups based on financial characteristics via a clustering algorithm
+3. Assign cluster label to stocks and fill forward cluster category to next assessment date
+4. For each date and cluster, fit the PB-ROE model and rank stocks based on resultant valuation
+5. Apply the Merton default probability model and rank stocks by probability of default
+6. Combine the rankings of the valuation and default models, and assign an ECL and risk stage
 
 Let's get started loading the required packages.
 ```{r packages, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 library("tidyverse")
 library("broom")
+library("modelr")
 library("RcppRoll")
 library("lubridate")
 library("tibbletime")
@@ -76,7 +76,7 @@ mkt.cap.filter <- mkt.cap %>% filter(!is.na(mkt.cap)) %>% nest(-me.date) %>%
   filter(me.date > "2012-12-31") %>% select(-data) %>% unnest()
 ```
 
-Create data attributes / transformations required for subsequent modelling steps.  
+## Create financial ratio attributes required for subsequent modelling steps  
 
 The code chunk below prepares the data required to perform the clustering.  Financial ratio attributes are created and market capitalisation filtering applied.  This will result in a data frame containing a monthly time series of fundamental data attributes and ratios derived therefrom for the top 1,000 US stocks by market capitalisation.
 ```{r step_1_1, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
@@ -160,7 +160,7 @@ Inspection of the histograms and summary statisitic show a number of issues with
 1. Depreciation & amortisation / total assets, non-current liabilities / total assets and revenue / total assets are all returning negative values.  This indicates data quality issues.  Neither the numerators or denominator of these ratios can take a negative value.  We will attempt to resolve this by winsorising the data.
 2. Intangibles / total assets appears to be a low variance predictor. This attribute is returning mostly nil values.  The minimum and first quartile value are both nil.  A quick review of a couple of Tickers known to have intangibles (A - Agilent, AAPL - Apple, NFLX - Netflix) shows that this data attribute is missing.  We will ignore this attribute and take Other assets / total assets as a proxy for the quantum of intangibles.  This is appropriate since Intangible assets is a component of Other assets.
 3. A number of attributes are highly skewed.  The k-means clustering algorithm does not perform well on skewed data since cluster centres are derived by taking the average of all data points.  Outliers present in skewed data sets unduly influence the cluster centres resulting in less then representative clusters.  See [here](https://www.quora.com/How-are-k-means-clustering-algorithms-sensitive-to-outliers) for a nice explanation of this effect.  Should the winsorisation of attributes not resolve the skewness we may need to performing a Box-Cox or log transformation. 
-4. The attributes we have used are on different scales.  Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items.  Revenue volatility is on a seperate scale altogether.  This is inappropriate for ingestion to the k-means clustering algorithm since one attribute can dominate others should it have greater dispersion.  The answers to  [this](https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering) question go into further detail around this effect.  In light of this we will centre and scale the data.
+4. The attributes we have used are on different scales.  Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items.  Revenue volatility is on a seperate scale altogether.  The use of attributes with differing scales is  not appropriate for ingestion to the k-means clustering algorithm.  This is because one attribute can dominate others should it have greater dispersion.  The answers to  [this](https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering) question go into further detail around this effect.  In light of this we will centre and scale the data.
 
 ```{r step_1_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # View summary statistics
@@ -193,7 +193,7 @@ simfin.m %>%
   ggplot(aes(x = value)) + geom_density() + facet_wrap(~ ratio, scales = "free")
 ```
 
-This provides us with a dataset that is more appropriate for clustering however revenue volatility does remain highly skewed.  We will take the log transform of this attribute to resolve this.  It's also worth noting the co-efficient of variation is now meaningless post scaling the data as the mean is now nil.
+This provides us with a dataset that is more appropriate for clustering.  Revenue volatility does remain highly skewed however.  We will take the log transform of this attribute to resolve this.  It's also worth noting the co-efficient of variation is now meaningless since the mean is nil after centering the data.
 
 ```{r step_1_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # View summary statistics
@@ -229,12 +229,16 @@ simfin.m %>%
 ```
 Okay, that looks good.
 
-THIS PARA.TO BE REVISED
-The motivation behind the clustering approach is to derive a grouping of stocks not by an assessment of the industry in which they reside but rather by their financial characteristics.  Is Google a technology company or a business with low leverage, high intangible assets and low revenue volatility?.  We are determining the industry (clusters) via an assessment of the data in an unsupervised manner, the similarity in stocks financial characteristics.  The financial charateristics that will be used are balance sheet and income structure (leverage, margin, extent of intangible assets, etc.).
 
-With that in mind, we need to assess the optimal number of clusters.  The code below is taken from this broom package [vignette](https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html).  This uses both the `broom` and `purrr` packages to iteratively perform k-means clustering with different values of k. 
-THIS PARA.TO BE REVISED
-The output is a graph of the total within-cluster sum of squares versus the various k values.  Within-cluster sum of squares is of interest since the k-means algorithm seeks to minimise the with-in cluster variation so that individual clusters are similar with respect to the attributes on which they are formed, and each cluster is dissimilar with respect to each other.  With-in cluster variation is measured by within-cluster sum of squares.
+## Assign stocks to like groups based on financial characteristics via a clustering algorithm
+
+Stocks are traditionally assigned to like groups via industry or sector membership.  We are going to take a different approach and group stocks in an unsupervised manner.  We will use a k-means clustering algorithm to cluster stocks based on financial characteristics.  
+
+Why not just use industry membership?  Industry membership can be subjective and may change over time with a lag.  The use of financial ratios is quantitative and will be updated with current information. 
+
+With that in mind, we need to assess the optimal number of clusters.  The code below is taken from this broom package [vignette](https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html).  This uses both the `broom` and `purrr` packages to iteratively perform k-means clustering with different values of k, the number of clusters. 
+
+The output of the code block below is a graph of the total within-cluster sum of squares versus a range of values for k.  Within-cluster sum of squares is of interest since this is the metric the k-means algorithm seeks to minimise.   Lower within-cluster sum of squares corresponds to lower with-in cluster variation.  This means that the members of the cluster are more alike and the clusters are more different.
 
 Note that we now select data at a specific date.
 ```{r step_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
@@ -266,9 +270,9 @@ ggplot(clusterings, aes(k, tot.withinss)) +
 
 Normally k is selected at the point at which the above plot shows a sharp "elbow".  This is the point at which there is little improvement in the fit of the algorithm as k increases.  As can be seen above, there is no sharp elbow to this graph.  For conveniance sake more than anything else we will choose 16 clusters.
 
-At this point we should note that our clustering technique can miss quiet a bit.  If clusters are of unequal size, are of unequal density, or are not spherical then k-means is not appropriate.  See [this article](https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/) for more detail.
+At this point we should note that our clustering technique can miss quiet a bit.  If clusters are of unequal size, are of unequal density, or are not spherical then the k-meansalgorithm is not appropriate.  This is beyond the scope of what I am trying to achieve with this post, see [this article](https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/) for more detail.
 
-This code plots the cluster characteristics in a radar plot
+This code plots the cluster characteristics in a radar plot.
 ```{r step_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 set.seed(123)
 kclust16 <- kmeans(simfin.cl, 16, nstart = 25)
@@ -296,7 +300,10 @@ kclust16.nm %>% select(-size, -withinss, -cluster, -first, -second, -seventh, -e
   ggtitle("Fundamental cluster characteristics")
 ```  
 
-We now need to prepare clusters for specific dates.  This is best done looping over the fundamental data as at the dates required.  The code below does this and returns a data frame.
+
+## Assign cluster label to stocks and fill forward cluster category to next assessment date
+
+We now need to prepare clusters for specific dates and label our clusters.  This is done by looping over the fundamental data at the dates required.  Clusters are labelled by concatenating the two highest and two lowest cluster centres. The code below does this and returns a data frame.   
 ```{r scratch, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Looped implementation
 set.seed(123)
@@ -304,13 +311,13 @@ kclust16.tot = data.frame()
 for (i in c('2014-01-31','2014-07-31', '2015-01-31', '2015-07-31', '2016-01-31', '2016-07-31', '2017-01-31', '2017-07-31', '2018-01-31', '2018-07-31')){
   # Prepare data
   x.simfin.cl <- simfin.m %>% filter(me.date == i) %>% 
-    select(Ticker, me.date, td.ta:rev.vol, -int.ta) %>% 
-    mutate(rev.vol = log(rev.vol)) %>% 
+    select(Ticker, me.date, SimFin.ID, td.ta:rev.vol, -int.ta) %>% 
+    mutate(SimFin.ID = as.character(SimFin.ID), rev.vol = log(rev.vol)) %>% 
     mutate_if(is.numeric, list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %>% 
     mutate_if(is.numeric, list(~scale(.)))
   
   # Apply k-means
-  x.kclust16 <- kmeans(select(x.simfin.cl, -Ticker, -me.date), 16, nstart = 25)
+  x.kclust16 <- kmeans(select(x.simfin.cl, -Ticker, -me.date, -SimFin.ID), 16, nstart = 25)
   
   # Extract cluster centres via Broom::tidy
   x.kclust16.td <- tidy(x.kclust16, col.names = c("td.ta", "ncl.ta", "nca.ta", "oa.ta", 
@@ -338,7 +345,43 @@ for (i in c('2014-01-31','2014-07-31', '2015-01-31', '2015-07-31', '2016-01-31',
 }
 ```
 
-INSERT TABLE VIEW TO INSPECT kclust16.tot
+INSERT TABLE VIEW TO INSPECT KCLUST16.TOT
+BUILD THIS AS A FUNCTION?
+
+The code block below joins the cluster labels to the monthly data set and then fills forward the cluster information.
+```{r join_clust, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+# Join tables
+kclust16.tot <- kclust16.tot %>% mutate(SimFin.ID = as.numeric(SimFin.ID))  
+
+simfin.m <- simfin.m %>% left_join(kclust16.tot, by = c("me.date", "Ticker", "SimFin.ID")) %>% 
+  group_by(Ticker) %>% fill(td.ta.data:withinss) %>% ungroup()
+
+```
+
+## For each date and cluster, fit the PB-ROE model and rank stocks based on resultant valuation
+
+```{r pb_roe, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+# XXX
+xx1 <- simfin.m %>% 
+  mutate(PB = log(1 / BooktoMarket), ROE = ann.Revenues / TotalEquity) %>% 
+  select(Ticker, SimFin.ID, me.date, PB, ROE, clust.name) %>% 
+  filter(me.date >= "2018-10-30", clust.name == "oa.ta_nca.ta_rev.vol_da.ta")
+
+xx2 <- xx1 %>% group_by(me.date, clust.name) %>% nest()
+
+xx3 <- xx2 %>%
+  mutate(
+    fit = map(data, ~ lm(PB ~ ROE, data = .x)),
+    tidied = map(fit, tidy),
+    glanced = map(fit, glance),
+    augmented = map(fit, augment),
+    resids = map2(data, fit, add_residuals)
+  )
+
+xx4 <- xx3 %>% unnest(resids)
+
+```
+
 
 
 Prepare data for Merton model.  
