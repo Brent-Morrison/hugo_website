@@ -407,13 +407,17 @@ simfin.m <- simfin.m %>% left_join(kclust16.tot, by = c("me.date", "Ticker", "Si
   
 #### Step 4 - For each date and cluster, fit the PB-ROE model and rank stocks based on the resultant valuation
 
+
+
 ```{r pb_roe, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 simfin.pbroe1 <- simfin.m %>% 
   # Price to book rato and ROE
-  mutate(PB = log(1 / BooktoMarket), ROE = ann.NetProfit / TotalEquity) %>% 
+    mutate(ROE = Winsorize(ann.NetProfit / TotalEquity, probs = c(0.02, 0.98), na.rm = TRUE),
+           PB = Winsorize(mkt.cap / TotalEquity, probs = c(0.02, 0.98), na.rm = TRUE),
+           logPB = if_else(PB <= 0, log(1), log(PB))) %>% 
   
   # Discard attributes not required
-  select(Ticker, SimFin.ID, me.date, PB, ROE, clust.name) %>% 
+  select(Ticker, SimFin.ID, me.date, logPB, ROE, clust.name) %>% 
   
   # Retain only valid records
   na.omit() %>% 
@@ -427,17 +431,25 @@ simfin.pbroe1 <- simfin.m %>%
   
   # Fit linear regression / PB-ROE model and return residuals
   mutate(
-    fit = map(data, ~ lm(PB ~ ROE, data = .x)),
+    fit = map(data, ~ lm(logPB ~ ROE, data = .x)),
     tidied = map(fit, tidy),
     glanced = map(fit, glance),
     augmented = map(fit, augment),
     resids = map2(data, fit, add_residuals)
   ) 
 
+# Data frame of PB, ROE and model residuals
 simfin.pbroe <- simfin.pbroe1 %>% 
   unnest(resids)
 
-simfin.m <- simfin.m %>% left_join(simfin.pbroe)
+# Join to monthly data frame
+simfin.m <- simfin.m %>% left_join(simfin.pbroe) %>% 
+  
+  # Add percent rank of residual  TO DO - add +ve or -ve residual flag to indicate if
+  # over or under valued and group over this in addition to below.
+  group_by(me.date, clust.name) %>% 
+  mutate(PBROE.rank = percent_rank(desc(resid))) %>% 
+  ungroup()
 
 # Plot average r squared of regression model
 # It would be interesting to compare the results of this to applying the PB-ROE model to industries
@@ -451,7 +463,7 @@ r.sq <- simfin.pbroe1 %>%
 simfin.m %>% 
   filter(clust.name == "td.ta_ncl.ta_nca.ta_rev.vol",
          me.date == "2018-12-31") %>% 
-  ggplot(aes(x = PB, y = ROE)) + 
+  ggplot(aes(x = logPB, y = ROE)) + 
   geom_point() +
   geom_smooth(method = lm)
 
@@ -462,10 +474,9 @@ simfin.m %>%
   
 #### Step 5 - Apply the Merton default probability model and rank stocks by probability of default
 
-Fistly, we need to prepare data for Merton model.  
-```{r code_chunk_7, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+Fistly, we need to prepare data for Merton model.  The three inputs are Market cap, debt and equity return volatilty.  We do not have equity volatility.
+```{r volatility, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Price - filter attributes and dates required
-  
 simfin.d <- simfin %>% filter(Indicator.Name == "Share Price" & publish.date > "2011-12-31") %>% 
 mutate(me.date = ceiling_date(publish.date, unit = "month") - 1) %>% 
 
@@ -482,8 +493,21 @@ mutate(me.date = ceiling_date(publish.date, unit = "month") - 1) %>%
   summarise(vol_3m = last(vol_3m),
             SharePrice = last(Indicator.Value)) %>% 
   ungroup()
+
+# Join to monthly data frame
+simfin.m <- simfin.m %>% left_join(simfin.d)
 ```
   
+dadada
+
+```{r merton, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+# Create Merton DD.  TO DO - resolve infinity
+simfin.m <- simfin.m %>% 
+  mutate(MertonDD = log(1/(TotalDebt / (TotalDebt + mkt.cap))) / 
+                    (vol_3m * (1-(TotalDebt/(TotalDebt + mkt.cap)))),
+         MertonDD.rank = percent_rank(desc(MertonDD)))
+```
+
   
 #### Step 6 - Combine the rankings of the valuation and default models, and assign an ECL and risk stage
 
