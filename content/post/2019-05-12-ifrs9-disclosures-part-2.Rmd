@@ -23,7 +23,7 @@ The ECL is a probability weighted estimate of credit losses.  The risk stage tak
 
 Stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss.  A high default risk is obviously a natural proxy for expected credit loss - the ECL is designed to reflect default risk.  A low valuation will also proxy credit risk on the basis that should a stock be trading at a significant discount to it's peers, it is likely to be experiencing heightened credit risk.  
 
-How will valuation and default risk be assessed?  Valuation will be assessed using the Price/Book - Return on Equity ("PB-ROE") model.  Default risk will be assessed using the using the Merton default probability model. Both of these methods will be explained in further detail below.  It should be noted that the PB-ROE model will be applied to groups of similar stocks.  THe similarity of stocks is not going to be assessed via industry or sector membership, but rather by similarity of fundamental characteristics.  This will be determined by applying a clustering algorithm.
+How will valuation and default risk be assessed?  Valuation will be assessed using the Price/Book - Return on Equity ("PB-ROE") model.  Default risk will be assessed using the using the Merton distance to default model. Both of these methods will be explained in further detail below.  It should be noted that the PB-ROE model will be applied to groups of similar stocks.  THe similarity of stocks is not going to be assessed via industry or sector membership, but rather by similarity of fundamental characteristics.  This will be determined by applying a clustering algorithm.
 
 This is all going to take some significant data engineering.  In broad terms this will look as follows.
 
@@ -31,7 +31,7 @@ This is all going to take some significant data engineering.  In broad terms thi
 2. Assign stocks to like groups based on financial characteristics via a clustering algorithm
 3. Assign cluster label to stocks and fill forward cluster category to next assessment date
 4. For each date and cluster, fit the PB-ROE model and rank stocks based on resultant valuation
-5. Apply the Merton default probability model and rank stocks by probability of default
+5. Apply the Merton distance to default model and rank stocks by distance to default
 6. Combine the rankings of the valuation and default models, and assign an ECL and risk stage
 
 Let's get started loading the required packages.
@@ -329,7 +329,7 @@ kclust16.nm <- kclust16.td %>%
             second = attribute[which(clust.rank == 2)],
             seventh = attribute[which(clust.rank == 7)],
             eighth = attribute[which(clust.rank == 8)]) %>% 
-  mutate(clust.name = paste(eighth, seventh, second,first, sep = "_")) %>% 
+  mutate(clust.name = paste(eighth, seventh, second, first, sep = "_")) %>% 
   left_join(kclust16.td, by = "cluster")
 
 # Radar plot of clusters
@@ -407,6 +407,9 @@ simfin.m <- simfin.m %>% left_join(kclust16.tot, by = c("me.date", "Ticker", "Si
   
 #### Step 4 - For each date and cluster, fit the PB-ROE model and rank stocks based on the resultant valuation
 
+I first learned about the Price/Book - Return on Equity ("PB-ROE") model reading [this](http://alephblog.com/2012/02/25/thinking-about-the-insurance-industry/) blog.  The intuition of fitting a regression line to determine the relationship between return on equity and valuation, and then using deviations from this relationship (the residual from this regression) to determine relative valuation of stocks seemed simple and appealing.  After all if some stocks in the same industry (or having the same financial characteristics in our example) have a higher ROE, they should be more valuable.
+
+The code block below creates the required inputs to the model, fits the model to each cluster and date, and then joins this data back to our main dataframe `simfin.m`.  This block of code relies heavily on the nesting functionailty in the `purrr` package.
 
 
 ```{r pb_roe, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
@@ -422,7 +425,7 @@ simfin.pbroe1 <- simfin.m %>%
   # Retain only valid records
   na.omit() %>% 
   
-  # Remove bad data created with application log 
+  # Remove bad data created with application of log transform 
   filter_all(all_vars(!is.infinite(.))) %>% 
   filter_all(all_vars(!is.nan(.))) %>% 
   
@@ -449,8 +452,13 @@ simfin.m <- simfin.m %>% left_join(simfin.pbroe) %>%
   # over or under valued and group over this in addition to below.
   group_by(me.date, clust.name) %>% 
   mutate(PBROE.rank = percent_rank(desc(resid))) %>% 
-  ungroup()
+  ungroup() %>% 
+  rename(PBROE.resid = resid)
+```
 
+The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank.  PBROE.resid is the difference between the actual log price book ratio and that predicted by the return on equity.  If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model.  Likewise a negative residual indicates undervaluation based on our model.  PBROE.rank is a descending percent ranking of the PBROE.resid.  A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.
+
+```{r pb_roe_check, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Plot average r squared of regression model
 # It would be interesting to compare the results of this to applying the PB-ROE model to industries
 r.sq <- simfin.pbroe1 %>% 
@@ -460,21 +468,37 @@ r.sq <- simfin.pbroe1 %>%
   summarise(r.squared = mean(r.squared))
 
 # Scatter plot of sample
+labs <- simfin.m %>% filter(!is.na(clust.name), me.date == "2017-12-31") %>% 
+  group_by(clust.name) %>%
+  filter(resid == max(resid) | resid == min(resid)) %>% 
+  select(Ticker, me.date, clust.name, logPB, ROE, resid)
+
 simfin.m %>% 
-  filter(clust.name == "td.ta_ncl.ta_nca.ta_rev.vol",
-         me.date == "2018-12-31") %>% 
+  filter(!is.na(clust.name),
+         me.date == "2017-12-31") %>% 
   ggplot(aes(x = logPB, y = ROE)) + 
+  facet_wrap(~clust.name, ncol = 6) + 
   geom_point() +
+  geom_text(data = labs,
+            label = labs$Ticker,
+            check_overlap = TRUE,
+            size = 3,
+            nudge_x = 0.4) +
   geom_smooth(method = lm)
 
 #https://stackoverflow.com/questions/26558631/predict-lm-in-a-loop-warning-prediction-from-a-rank-deficient-fit-may-be-mis
 
 ```
   
-  
-#### Step 5 - Apply the Merton default probability model and rank stocks by probability of default
+*Determine Why cluster `oa.ta_nca.ta_td.ta_da.ta`as at 31 December 2017 returning only one stock despite the cluster size being 81?*  
+ 
+#### Step 5 - Apply the Merton distance to default model and rank stocks by probability of default
 
-Fistly, we need to prepare data for Merton model.  The three inputs are Market cap, debt and equity return volatilty.  We do not have equity volatility.
+TO DO - insert introductory explanation of Metorn model here.  Why does full version need iteration?  Show summarised version.  What does the DD actually represent?
+
+The Merton distance to default model [Merton for dummies](https://econpapers.repec.org/paper/utsrpaper/112.htm)  
+
+Fistly, we need to prepare data for Merton model.  The three inputs are Market cap, debt and equity return volatilty.  We do not have equity volatility so this is calculated below.
 ```{r volatility, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Price - filter attributes and dates required
 simfin.d <- simfin %>% filter(Indicator.Name == "Share Price" & publish.date > "2011-12-31") %>% 
@@ -498,25 +522,67 @@ mutate(me.date = ceiling_date(publish.date, unit = "month") - 1) %>%
 simfin.m <- simfin.m %>% left_join(simfin.d)
 ```
   
-dadada
+We now create the distance to default and a descending percent ranking thereof (MertonDD.rank).
 
 ```{r merton, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Create Merton DD.  TO DO - resolve infinity
 simfin.m <- simfin.m %>% 
-  mutate(MertonDD = log(1/(TotalDebt / (TotalDebt + mkt.cap))) / 
-                    (vol_3m * (1-(TotalDebt/(TotalDebt + mkt.cap)))),
+  mutate(MertonDD = if_else(TotalDebt == 0 | vol_3m == 0, 25,
+                       log(1/(TotalDebt / (TotalDebt + mkt.cap))) / 
+                       (vol_3m * (1-(TotalDebt/(TotalDebt + mkt.cap))))),
          MertonDD.rank = percent_rank(desc(MertonDD)))
 ```
+
+TO DO - visualise the results of the DD.
+
+A MertonDD.rank value of 1 is the highest value of distance to default, these are stocks that are unlikely to default and hence have low credit risk. Likewise lower values of MertonDD.rank represent stocks with smaller distance to default and higher credit risk.
+
+Inthe introductions we stated that stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss.  We therefore need to combine our ranking and come up with a single measure with which to apply and ECL and risk stage. The code block below takes the average of our two percent rank measures (PBROE.rank and MertonDD.rank), ranks the result and assigns an ECL on the following scale.
+
 
   
 #### Step 6 - Combine the rankings of the valuation and default models, and assign an ECL and risk stage
 
 TODO - ALL OF STEP 6
 
+```{r ecl, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+# Create Merton DD.  TO DO - resolve infinity
+simfin.m <- simfin.m %>% 
+  group_by(me.date) %>% 
+  mutate(avg.rank = (PBROE.rank + MertonDD.rank) /2,
+         comb.rank = percent_rank(avg.rank)) %>% 
+  ungroup() %>% 
+  mutate(cover = case_when(comb.rank >= 0.95 ~ comb.rank * 0.50,
+                           comb.rank >= 0.85 ~ comb.rank * 0.40,
+                           comb.rank >= 0.75 ~ comb.rank * 0.30,
+                           comb.rank >= 0.65 ~ comb.rank * 0.20,
+                           comb.rank >= 0.45 ~ comb.rank * 0.10,
+                           comb.rank >= 0.25 ~ comb.rank * 0.05,
+                           TRUE ~ comb.rank * 0.025 * TotalDebt
+                           ),
+         ECL = cover * TotalDebt)
+```
 
 
 
 ## SCRATCH
+
+
+```{r scratch, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+xx1 <- simfin.m %>% 
+  filter(me.date == "2017-12-31"
+         #,clust.name == "oa.ta_rev.vol_da.ta_rev.ta"
+         ) %>% 
+  select(Ticker, mkt.cap, TotalEquity, BooktoMarket, 
+         TotalDebt, logPB, ROE, resid, vol_3m, 
+         PBROE.rank, MertonDD, MertonDD.rank,
+         avg.rank, comb.rank, cover, ECL)
+
+
+xx2 <- simfin.pbroe1 %>% 
+  unnest(tidied) %>% 
+  filter(me.date == "2017-12-31", clust.name == "oa.ta_rev.vol_da.ta_rev.ta")
+```
 
 simfin.smry (create wide date frame)  
 - 12m return (lag 1 month)  
