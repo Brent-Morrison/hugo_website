@@ -136,7 +136,7 @@ simfin.m <- simfin %>% filter(Indicator.Name %in% c("Book to Market", "Total Equ
 ```
 
 Summary statistics and a histogram of the financial ratios to be used for clustering are returned below.  Note that this data covers all dates.  When the clustering algorithm is applied it will be done so to the stock data at a specific date.  The output below can be considered an initial exploratory data analysis to determine if the data is fit for ingestion to the clustering process. 
-```{r step_1_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+```{r step_1_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
 simfin.m %>% select(td.ta:rev.vol) %>% descr(style = "rmarkdown") %>% round(2) %>% 
 kable(format = "html") %>% #kable_styling() %>% 
@@ -165,7 +165,7 @@ Table formatting [^1].
 
 [^1]: I am yet to find a way to correct the formatting of my tables.  They should look something like [this](https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html#bootstrap_theme).
 
-```{r step_1_21, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+```{r step_1_21, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
 simfin.m %>% select(td.ta:rev.vol) %>% 
   descr(style = "rmarkdown") %>% 
@@ -202,7 +202,7 @@ Inspection of the histograms and summary statisitic show a number of issues with
 
 4. The attributes we have used are on different scales.  Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items.  Revenue volatility is on a seperate scale altogether.  The use of attributes with differing scales is  not appropriate for ingestion to the k-means clustering algorithm.  This is because one attribute can dominate others should it have greater dispersion.  The answers to  [this](https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering) question go into further detail around this effect.  In light of this we will centre and scale the data.  
 
-```{r step_1_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+```{r step_1_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
 simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
   mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %>% 
@@ -235,7 +235,7 @@ simfin.m %>%
 
 This provides us with a dataset that is more appropriate for clustering.  Revenue volatility does remain highly skewed however.  NOT RE TD.DA DISTRIBUTION - STOCKS WITH NO DEBT.  We will take the log transform of this attribute to resolve this.  It's also worth noting the co-efficient of variation is now meaningless since the mean is nil after centering the data.
 
-```{r step_1_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+```{r step_1_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
 simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
   mutate(rev.vol = log(rev.vol)) %>% 
@@ -314,7 +314,7 @@ Normally k is selected at the point at which the above plot shows a sharp "elbow
 At this point we should note that our clustering technique can miss quiet a bit.  If clusters are of unequal size, are of unequal density, or are not spherical then the k-means algorithm is not appropriate.  This is beyond the scope of what I am trying to achieve with this post, see [this article](https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/) for more detail.
 
 This code plots the cluster characteristics in a radar plot.
-```{r step_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+```{r step_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}  
 set.seed(123)
 kclust16 <- kmeans(simfin.cl, 16, nstart = 25)
 kclust16.td <- tidy(kclust16, col.names = c("td.ta", "ncl.ta", "nca.ta", 
@@ -347,7 +347,7 @@ TODO - COMMENT ON ABOVE PLOT.
 ### Step 3 - Assign cluster label to stocks and fill forward cluster category to next assessment date
 
 We now need to prepare clusters for specific dates and label our clusters.  This is done by looping over the fundamental data at the dates required.  Clusters are labelled by concatenating the two highest and two lowest cluster centres. The code below does this and returns a data frame.   
-```{r scratch, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+```{r cluster_loop, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Looped implementation
 set.seed(123)
 kclust16.tot = data.frame()
@@ -458,7 +458,7 @@ simfin.m <- simfin.m %>% left_join(simfin.pbroe) %>%
 
 The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank.  PBROE.resid is the difference between the actual log price book ratio and that predicted by the return on equity.  If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model.  Likewise a negative residual indicates undervaluation based on our model.  PBROE.rank is a descending percent ranking of the PBROE.resid.  A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.
 
-```{r pb_roe_check, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+```{r pb_roe_check, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}  
 # Plot average r squared of regression model
 # It would be interesting to compare the results of this to applying the PB-ROE model to industries
 r.sq <- simfin.pbroe1 %>% 
@@ -470,8 +470,8 @@ r.sq <- simfin.pbroe1 %>%
 # Scatter plot of sample
 labs <- simfin.m %>% filter(!is.na(clust.name), me.date == "2017-12-31") %>% 
   group_by(clust.name) %>%
-  filter(resid == max(resid) | resid == min(resid)) %>% 
-  select(Ticker, me.date, clust.name, logPB, ROE, resid)
+  filter(PBROE.resid == max(PBROE.resid) | PBROE.resid == min(PBROE.resid)) %>% 
+  select(Ticker, me.date, clust.name, logPB, ROE, PBROE.resid)
 
 simfin.m %>% 
   filter(!is.na(clust.name),
@@ -574,7 +574,7 @@ xx1 <- simfin.m %>%
          #,clust.name == "oa.ta_rev.vol_da.ta_rev.ta"
          ) %>% 
   select(Ticker, mkt.cap, TotalEquity, BooktoMarket, 
-         TotalDebt, logPB, ROE, resid, vol_3m, 
+         TotalDebt, logPB, ROE, PBROE.resid, vol_3m, 
          PBROE.rank, MertonDD, MertonDD.rank,
          avg.rank, comb.rank, cover, ECL)
 
