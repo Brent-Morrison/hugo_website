@@ -1,0 +1,550 @@
+---
+title: IFRS9 disclosures (part 2)
+author: Brent Morrison
+date: '2019-09-30'
+output: html_document
+slug: ifrs9-disclosures-part-2
+categories:
+  - Accounting
+tags:
+  - Accounting
+  - R
+description: ''
+topics: []
+---
+
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/jquery/jquery.min.js"></script>
+<link href="/rmarkdown-libs/datatables-css/datatables-crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/datatables-binding/datatables.js"></script>
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.min.css" rel="stylesheet" />
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.extra.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/dt-core/js/jquery.dataTables.min.js"></script>
+<link href="/rmarkdown-libs/crosstalk/css/crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/crosstalk/js/crosstalk.min.js"></script>
+
+
+<p><em>This post is incomplete. Outstanding actions are labelled TODO</em></p>
+<p>This post is a continuation of the series initiated <a href="https://brentmorrison.netlify.com/post/ifrs9-disclosures/">here</a>.</p>
+<p>Recall our problem imagines we are a bank lending to the largest 1,000 US companies. We (“Bank1000”) own the debt of these companies and are required to prepare IFRS9 disclosures. This requires the estimatation of an expected credit loss (“ECL”) and risk stage.</p>
+<p>We have already selected the top 1,000 stocks for analysis, we now need to create an ECL balance and assign a risk stage.</p>
+<p>The ECL is a probability weighted estimate of credit losses. The risk stage takes three values and indicates whether a loan has had no change in credit risk since origination (Stage 1), has experienced a significant increase in credit risk since origination (Stage 2) or if the loan is credit impaired (Stage 3). We are going to estimate the expected credit loss and risk stage via measurements of valuation and default risk. We do not know the level of credit risk at origination, so the risk stage will be assigned based on the current level of credit risk as opposed to the change since origination.</p>
+<p>Stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss. A high default risk is obviously a natural proxy for expected credit loss, the ECL is designed to reflect default risk. A low valuation will also proxy credit risk on the basis that should a stock be trading at a significant discount to it’s peers, it is likely to be experiencing heightened credit risk.</p>
+<p>How will valuation and default risk be assessed? Valuation will be assessed using the Price/Book - Return on Equity (“PB-ROE”) model. Default risk will be assessed using the using the Merton distance to default model. Both of these methods will be explained in further detail below. It should be noted that the PB-ROE model will be applied to groups of similar stocks. The similarity of stocks is not going to be assessed via industry or sector membership, but rather by similarity of fundamental characteristics. This will be determined by applying a clustering algorithm.</p>
+<p>This is all going to take some significant data engineering. In broad terms this will look as follows:</p>
+<ol style="list-style-type: decimal">
+<li>Create financial ratio attributes required for subsequent modelling steps</li>
+<li>Assign stocks to like groups based on financial characteristics via a clustering algorithm</li>
+<li>Assign cluster membership labels to stocks and fill forward cluster label to next assessment date</li>
+<li>For each date and cluster, fit the PB-ROE model and rank stocks based on resultant valuation</li>
+<li>Apply the Merton distance to default model and rank stocks by distance to default</li>
+<li>Combine the rankings of the valuation and default models, and assign an ECL and risk stage</li>
+</ol>
+<p>Let’s get started loading the required packages.</p>
+<pre class="r"><code>library(&quot;tidyverse&quot;)
+library(&quot;broom&quot;)
+library(&quot;modelr&quot;)
+library(&quot;RcppRoll&quot;)
+library(&quot;lubridate&quot;)
+library(&quot;tibbletime&quot;)
+library(&quot;scales&quot;)
+library(&quot;tidyquant&quot;)
+library(&quot;DescTools&quot;)
+library(&quot;ggplot2&quot;)
+library(&quot;ggiraphExtra&quot;)
+library(&quot;kableExtra&quot;)
+library(&quot;summarytools&quot;)
+library(&quot;data.table&quot;)
+library(&quot;DT&quot;)
+library(&quot;htmltools&quot;)</code></pre>
+<p>Next, we read in the Simfin raw data and create the market capitalisation attribute and market capitalisation cut-offs. This is the same initial step that was performed in the prior post.</p>
+<pre class="r"><code>simfin &lt;- fread(&quot;C:/Users/brent/Documents/R/R_import/output-comma-narrow.csv&quot;) %&gt;% 
+  rename_all(list(~str_replace_all(., &quot; &quot;, &quot;.&quot;))) %&gt;% 
+  rename(Industry = Company.Industry.Classification.Code) %&gt;% 
+  mutate(publish.date = as_date(publish.date)) %&gt;% as_tibble()
+
+# Market cap construction
+mkt.cap &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&quot;, &quot;Total Equity&quot;)) %&gt;% 
+  mutate(Indicator.Name = str_replace_all(Indicator.Name,&quot; &quot;,&quot;&quot;),
+         me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  spread(Indicator.Name, Indicator.Value) %&gt;% 
+  mutate(mkt.cap = abs(TotalEquity) / Winsorize(abs(BooktoMarket), minval = 0.1, maxval = 3)) %&gt;%
+  filter(is.finite(mkt.cap)) %&gt;% 
+  complete(me.date = seq(as.Date(&quot;2008-01-01&quot;), as.Date(&quot;2019-01-01&quot;), by = &quot;month&quot;) - 1, Ticker)   %&gt;% group_by(Ticker) %&gt;% fill(mkt.cap) %&gt;% ungroup() %&gt;%
+  select(Ticker, me.date, TotalEquity, BooktoMarket, mkt.cap)
+
+# Market capitalisation cut-offs
+mkt.cap.filter &lt;- mkt.cap %&gt;% filter(!is.na(mkt.cap)) %&gt;% nest(-me.date) %&gt;% 
+  mutate(thousandth     = map(data, ~nth(.$mkt.cap, -1000L, order_by = .$mkt.cap)),
+         eighthundredth = map(data, ~nth(.$mkt.cap, -800L, order_by = .$mkt.cap)),
+         sixhundredth   = map(data, ~nth(.$mkt.cap, -600L, order_by = .$mkt.cap)),
+         fourhundredth  = map(data, ~nth(.$mkt.cap, -400L, order_by = .$mkt.cap)),
+         twohundredth   = map(data, ~nth(.$mkt.cap, -200L, order_by = .$mkt.cap))) %&gt;% 
+  filter(me.date &gt; &quot;2012-12-31&quot;) %&gt;% select(-data) %&gt;% unnest()</code></pre>
+<div id="step-1---create-financial-ratio-attributes-required-for-subsequent-modelling-steps" class="section level3">
+<h3>Step 1 - Create financial ratio attributes required for subsequent modelling steps</h3>
+<p>The code block below prepares the data required to perform the clustering. Financial ratio attributes are created and market capitalisation filtering applied. This will result in a data frame containing a monthly time series of fundamental data attributes (and ratios derived therefrom), for the top 1,000 US stocks by market capitalisation.</p>
+<pre class="r"><code># Prepare data for clustering algorithm
+
+# Fundamental data - filter attributes and dates required
+simfin.m &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&quot;, &quot;Total Equity&quot;, &quot;Long Term Debt&quot;, &quot;Short term debt&quot;, &quot;Enterprise Value&quot;, &quot;Total Assets&quot;, &quot;Intangible Assets&quot;, &quot;Revenues&quot;, &quot;Net Profit&quot;, &quot;Total Noncurrent Assets&quot;, &quot;Total Noncurrent Liabilities&quot;, &quot;Depreciation &amp; Amortisation&quot;, &quot;Net PP&amp;E&quot;) &amp; publish.date &gt; &quot;2011-12-31&quot;) %&gt;% 
+  mutate(Indicator.Name = str_replace_all(Indicator.Name, c(&quot; &quot; = &quot;&quot;, &quot;&amp;&quot; = &quot;&quot;)),
+         me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+  spread(Indicator.Name, Indicator.Value) %&gt;% 
+  
+  # Establish time index
+  as_tbl_time(index = publish.date) %&gt;% 
+  
+  # Group and remove Tickers with insufficient days data to satisfy rolling function
+  group_by(Ticker) %&gt;% 
+  mutate(date_count = n()) %&gt;% filter(date_count &gt; 3, !Ticker == &quot;&quot;) %&gt;% 
+  
+  # Quarterly to annual aggregation for P&amp;L line times
+  mutate(ann.Revenues = roll_sum(Revenues, n = 4, na.rm = TRUE, align = &quot;right&quot;, fill = NA),
+         ann.NetProfit = roll_sum(NetProfit, n = 4, na.rm = TRUE, align = &quot;right&quot;, fill = NA),
+         ann.DepAmt = roll_sum(DepreciationAmortisation, n = 4, na.rm = TRUE, align = &quot;right&quot;, fill = NA),
+         dlt.Revenues = log(Revenues / lag(Revenues, 4)),
+         vol.Revenues = roll_sd(dlt.Revenues, n = 8, na.rm = TRUE, align = &quot;right&quot;, fill = NA)
+         ) %&gt;% 
+  ungroup() %&gt;% 
+  
+  # Create attributes for ingestion to clustering algorithm  
+  mutate(TotalDebt = LongTermDebt + Shorttermdebt,
+     mkt.cap = abs(TotalEquity) / Winsorize(abs(BooktoMarket), minval = 0.1, maxval = 3), 
+     td.ta   = TotalDebt / TotalAssets,
+     ncl.ta  = TotalNoncurrentLiabilities / TotalAssets,
+     nca.ta  = TotalNoncurrentAssets / TotalAssets,
+     int.ta  = IntangibleAssets / TotalAssets,
+     oa.ta   = (TotalNoncurrentAssets - NetPPE) / TotalAssets,
+     rev.ta  = ann.Revenues / TotalAssets,
+     np.ta   = ann.NetProfit / TotalAssets,
+     da.ta   = ann.DepAmt / TotalAssets,
+     rev.vol = vol.Revenues) %&gt;% 
+
+  # Join market cap data cut-off points and filter
+  left_join(mkt.cap.filter) %&gt;% filter(mkt.cap &gt;= thousandth) %&gt;% 
+  
+  # Pad time series for all month end dates and fill attribute values
+  complete(me.date = seq(as.Date(&quot;2012-01-01&quot;), as.Date(&quot;2019-01-01&quot;), by = &quot;month&quot;) - 1, Ticker) %&gt;% 
+      
+  # Fill forward post attribute creation
+  group_by(Ticker) %&gt;% fill(everything()) %&gt;% ungroup() %&gt;%
+  
+  # Filter any record with an attribute returning NA
+  drop_na() </code></pre>
+<p>Summary statistics and a density plot of the financial ratios to be used for clustering are returned below. Note that this data covers all dates. When the clustering algorithm is applied it will be done so to the stock data at a specific date. The output below can be considered an initial exploratory data analysis to determine if the data is fit for ingestion to the clustering process.</p>
+<pre class="r"><code># View summary statistics
+simfin.m %&gt;% select(td.ta:rev.vol) %&gt;% 
+  descr(style = &quot;rmarkdown&quot;) %&gt;% 
+  round(2) %&gt;% 
+  datatable(
+      options = list(pageLength = 15),
+      caption = tags$caption(
+      style = &#39;caption-side: bottom; text-align: left;&#39;,
+      em(
+        &#39;Financial ratio legend:&#39;, tags$br(),
+        &#39;da.ta: Depreciation &amp; amortisation / total assets&#39;, tags$br(),
+        &#39;int.ta: Intangibles / total assets&#39;, tags$br(),
+        &#39;nca.ta: Non-current assets / total assets&#39;, tags$br(),
+        &#39;ncl.ta: Non-current liabilities / total assets&#39;, tags$br(),
+        &#39;np.ta: Net profit / total assets&#39;, tags$br(),
+        &#39;oa.ta: Other assets / total assets&#39;, tags$br(),
+        &#39;rev.ta: Revenue / total assets&#39;, tags$br(),
+        &#39;td.ta: Total debt / total assets&#39;, tags$br(),
+        &#39;rev.vol: Revenue volatility&#39;
+         )
+      ),
+      escape = FALSE
+  )</code></pre>
+<div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0.04,0.03,-0.24,0.02,0.03,0.05,0.64,0.02,0.02,0.86,6.45,0.01,80.23,56556,100],[0.06,0.09,0,0,0.01,0.08,0.81,0.01,0.08,1.67,2.68,0.01,9.79,56556,100],[0.62,0.23,0,0.45,0.63,0.81,1,0.27,0.36,0.38,-0.38,0.01,-0.65,56556,100],[0.37,0.45,-0.08,0.18,0.36,0.51,21.41,0.24,0.33,1.19,26.1,0.01,1006.7,56556,100],[0.05,0.11,-2.95,0.02,0.05,0.09,0.83,0.05,0.07,2.32,-6.17,0.01,136.44,56556,100],[0.34,0.23,0,0.15,0.31,0.51,0.95,0.26,0.36,0.67,0.43,0.01,-0.77,56556,100],[0.83,0.71,-0.46,0.36,0.64,1.08,8.89,0.48,0.72,0.85,2.75,0.01,15.26,56556,100],[0.15,0.26,0,0.04,0.07,0.16,4.04,0.07,0.12,1.71,5.97,0.01,51.8,56556,100],[0.29,0.46,0,0.13,0.27,0.4,24.93,0.2,0.27,1.56,32.03,0.01,1397.67,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>int.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8,9]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
+<p>A not about table formatting <a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
+<pre class="r"><code># Plot density graph
+simfin.m %&gt;% 
+  select(td.ta:da.ta) %&gt;% gather(ratio, value) %&gt;% 
+  ggplot(aes(x = value)) + 
+  geom_density() + 
+  facet_wrap(~ ratio, scales = &quot;free&quot;) +
+  labs(title = &quot;Financial attribute density plot&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_1_3-1.png" width="792" /></p>
+<p>Inspection of the histograms and summary statisitic show a number of issues with this data that need to be addressed before proceeding:</p>
+<ol style="list-style-type: decimal">
+<li><p>Depreciation &amp; amortisation / total assets, non-current liabilities / total assets and revenue / total assets are all returning negative values. This indicates data quality issues. Neither the numerators or denominator of these ratios can take a negative value. We will attempt to resolve this by winsorising the data.</p></li>
+<li><p>Intangibles / total assets appears to be a low variance predictor. This attribute is returning mostly nil values. The minimum and first quartile value are both nil. A quick review of a couple of Tickers known to have intangibles (A - Agilent, AAPL - Apple, NFLX - Netflix) shows that this data attribute is missing. We will ignore this attribute and take Other assets / total assets as a proxy for the quantum of intangibles. This is appropriate since Intangible assets is a component of Other assets.</p></li>
+<li><p>A number of attributes are highly skewed. The k-means clustering algorithm does not perform well on skewed data since cluster centres are derived by taking the average of all data points. Outliers present in skewed data sets unduly influence the cluster centres resulting in less then representative clusters. See <a href="https://www.quora.com/How-are-k-means-clustering-algorithms-sensitive-to-outliers">here</a> for a nice explanation of this effect. Should the winsorisation of attributes not resolve the skewness we may need to performing a Box-Cox or log transformation.</p></li>
+<li><p>The attributes we have used are on different scales. Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items. Revenue volatility is on a seperate scale altogether. The use of attributes with differing scales is not appropriate for ingestion to the k-means clustering algorithm. This is because one attribute can dominate others should it have greater dispersion. The answers to <a href="https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering">this</a> Stack Overflow question go into further detail around this effect. In light of this we will centre and scale the data.</p></li>
+</ol>
+<pre class="r"><code># View summary statistics
+simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;% 
+  mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
+  mutate_all(list(~scale(.))) %&gt;% round(2) %&gt;% 
+  descr(style = &quot;rmarkdown&quot;) %&gt;% round(2) %&gt;% 
+  datatable(
+      options = list(pageLength = 15),
+      caption = tags$caption(
+        style = &#39;caption-side: bottom; text-align: left;&#39;,
+        em(      
+           &#39;Financial ratio legend:&#39;, tags$br(),
+           &#39;da.ta: Depreciation &amp; amortisation / total assets&#39;, tags$br(),
+           &#39;int.ta: Intangibles / total assets&#39;, tags$br(),
+           &#39;nca.ta: Non-current assets / total assets&#39;, tags$br(),
+           &#39;ncl.ta: Non-current liabilities / total assets&#39;, tags$br(),
+           &#39;np.ta: Net profit / total assets&#39;, tags$br(),
+           &#39;oa.ta: Other assets / total assets&#39;, tags$br(),
+           &#39;rev.ta: Revenue / total assets&#39;, tags$br(),
+           &#39;td.ta: Total debt / total assets&#39;, tags$br(),
+           &#39;rev.vol: Revenue volatility&#39;
+           )
+    ),
+    escape = FALSE
+  )</code></pre>
+<div id="htmlwidget-2" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-2">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0,1,-1.57,-0.63,-0.18,0.39,3.78,0.74,1.02,19366.9,1.37,0.01,2.53,56556,100],[-0,1,-2.46,-0.72,0.05,0.85,1.58,1.16,1.57,-201974.75,-0.37,0.01,-0.69,56556,100],[-0,1,-1.56,-0.77,-0.03,0.64,3.26,1.04,1.41,-43499.44,0.55,0.01,0.31,56556,100],[0,1,-4.85,-0.32,0.02,0.45,2.44,0.56,0.77,19238.27,-1.66,0.01,7.02,56556,100],[0,1,-1.48,-0.83,-0.13,0.73,2.31,1.14,1.56,89783.75,0.42,0.01,-0.81,56556,100],[0,1,-1.2,-0.72,-0.28,0.41,3.79,0.76,1.13,19171.51,1.48,0.01,2.23,56556,100],[0,1,-0.67,-0.53,-0.36,0.07,5.57,0.31,0.6,31076.46,3.35,0.01,13.24,56556,100],[0,1,-1.38,-0.76,-0.04,0.59,3.11,1.01,1.35,1752.04,0.62,0.01,0.27,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
+<pre class="r"><code># Plot density graph
+simfin.m %&gt;% 
+  select(td.ta:rev.vol, -int.ta) %&gt;% 
+  mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
+  mutate_all(list(~scale(.))) %&gt;%   
+  gather(ratio, value) %&gt;% 
+  ggplot(aes(x = value)) + 
+  geom_density() + 
+  facet_wrap(~ ratio, scales = &quot;free&quot;) +
+  labs(title = &quot;Financial attribute density plot&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_1_5-1.png" width="792" /></p>
+<p>This provides us with a dataset that is more appropriate for clustering. Some further observations:</p>
+<ol style="list-style-type: decimal">
+<li>Revenue volatility remains highly skewed. We will take the log transform of this attribute to resolve this.<br />
+</li>
+<li>The total debt over assets attribute (td.ta) has a bimodal distribution. This is a feature of the data in that a specific cohort of stocks will have no debt.<br />
+</li>
+<li>It’s also worth noting the co-efficient of variation is now meaningless since the mean is nil after centering the data.</li>
+</ol>
+<pre class="r"><code># View summary statistics
+simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;% 
+  mutate(rev.vol = log(rev.vol)) %&gt;% 
+  mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
+  mutate_all(list(~scale(.))) %&gt;% round(2) %&gt;% 
+  descr(style = &quot;rmarkdown&quot;) %&gt;% round(2) %&gt;% 
+  datatable(
+      options = list(pageLength = 15),
+      caption = tags$caption(
+        style = &#39;caption-side: bottom; text-align: left;&#39;,
+        em(      
+           &#39;Financial ratio legend:&#39;, tags$br(),
+           &#39;da.ta: Depreciation &amp; amortisation / total assets&#39;, tags$br(),
+           &#39;int.ta: Intangibles / total assets&#39;, tags$br(),
+           &#39;nca.ta: Non-current assets / total assets&#39;, tags$br(),
+           &#39;ncl.ta: Non-current liabilities / total assets&#39;, tags$br(),
+           &#39;np.ta: Net profit / total assets&#39;, tags$br(),
+           &#39;oa.ta: Other assets / total assets&#39;, tags$br(),
+           &#39;rev.ta: Revenue / total assets&#39;, tags$br(),
+           &#39;td.ta: Total debt / total assets&#39;, tags$br(),
+           &#39;rev.vol: Revenue volatility&#39;
+           )
+    ),
+    escape = FALSE
+  )</code></pre>
+<div id="htmlwidget-3" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-3">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0,1,-1.57,-0.63,-0.18,0.39,3.78,0.74,1.02,19366.9,1.37,0.01,2.53,56556,100],[-0,1,-2.46,-0.72,0.05,0.85,1.58,1.16,1.57,-201974.75,-0.37,0.01,-0.69,56556,100],[-0,1,-1.56,-0.77,-0.03,0.64,3.26,1.04,1.41,-43499.44,0.55,0.01,0.31,56556,100],[0,1,-4.85,-0.32,0.02,0.45,2.44,0.56,0.77,19238.27,-1.66,0.01,7.02,56556,100],[0,1,-1.48,-0.83,-0.13,0.73,2.31,1.14,1.56,89783.75,0.42,0.01,-0.81,56556,100],[0,1,-1.2,-0.72,-0.28,0.41,3.79,0.76,1.13,19171.51,1.48,0.01,2.23,56556,100],[-0,1,-2.12,-0.71,-0.1,0.65,2.65,0.99,1.36,-15285.46,0.35,0.01,-0.2,56556,100],[0,1,-1.38,-0.76,-0.04,0.59,3.11,1.01,1.35,1752.04,0.62,0.01,0.27,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
+<pre class="r"><code># Plot density graph
+simfin.m %&gt;% 
+  #filter(me.date == &#39;2013-10-31&#39;) %&gt;% 
+  select(td.ta:rev.vol, -int.ta) %&gt;% 
+  mutate(rev.vol = log(rev.vol)) %&gt;% 
+  mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
+  mutate_all(list(~scale(.))) %&gt;%   
+  gather(ratio, value) %&gt;% 
+  ggplot(aes(x = value)) + 
+  geom_density() + 
+  facet_wrap(~ ratio, scales = &quot;free&quot;) +
+  labs(title = &quot;Financial attribute density plot&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_1_7-1.png" width="792" /></p>
+<p>Okay, that looks pretty good. We could perform further transformations, chapter 3 of <a href="https://www.amazon.com/Applied-Predictive-Modeling-Max-Kuhn/dp/1461468485">Applied Predictive Modelling</a> is a good place to review the methods available, however for our purposes we will proceed as is.</p>
+</div>
+<div id="step-2---assign-stocks-to-like-groups-based-on-financial-characteristics-via-a-clustering-algorithm" class="section level3">
+<h3>Step 2 - Assign stocks to like groups based on financial characteristics via a clustering algorithm</h3>
+<p>Stocks are traditionally assigned to like groups via industry or sector membership. We are going to take a different approach and group stocks in an unsupervised manner. We will use a k-means clustering algorithm to cluster stocks based on financial characteristics.</p>
+<p>Why not just use industry membership? Industry membership can be subjective and may change over time with a lag. The use of financial ratios is quantitative and will be updated with current information.</p>
+<p>With that in mind, we need to assess the optimal number of clusters. The code below is taken from <a href="https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html">this</a> broom package vignette. This uses both the <code>broom</code> and <code>purrr</code> packages to iteratively perform k-means clustering with different values of k, the number of clusters.</p>
+<p>The output of the code block below is a graph of the total within-cluster sum of squares versus a range of values for k. Within-cluster sum of squares is of interest since this is the metric the k-means algorithm seeks to minimise. Lower within-cluster sum of squares corresponds to lower with-in cluster variation. This means that the members of the cluster are more alike and the clusters are therefore more different.</p>
+<p>Note that we now select data at a specific date.</p>
+<pre class="r"><code># Create dataframe for clustering
+simfin.cl &lt;- simfin.m %&gt;% filter(me.date == &#39;2014-01-31&#39;) %&gt;% 
+  select(td.ta:rev.vol, -int.ta) %&gt;% 
+  mutate(rev.vol = log(rev.vol)) %&gt;% 
+  mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
+  mutate_all(list(~scale(.)))
+
+# K means clustering
+kclusts &lt;- tibble(k = 5:50) %&gt;%
+  mutate(
+    kclust = map(k, ~kmeans(simfin.cl, .x)),
+    tidied = map(kclust, tidy),
+    glanced = map(kclust, glance),
+    augmented = map(kclust, augment, simfin.cl)
+  )
+
+clusterings &lt;- kclusts %&gt;%
+  unnest(glanced, .drop = TRUE)
+
+assignments &lt;- kclusts %&gt;% 
+  unnest(augmented)
+
+ggplot(clusterings, aes(k, tot.withinss)) +
+  geom_line() +
+  ylab(&quot;Total within-cluster sum of squares&quot;) +
+  labs(title = &quot;Financial attribute clustering analysis&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
+  theme_grey() +
+  theme(axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_2-1.png" width="672" /></p>
+<p>Normally k is selected at the point at which the above plot shows a sharp “elbow”. This is the point at which there is little improvement in the fit of the algorithm as k increases. As can be seen above, there is no sharp elbow to this graph. For conveniance sake more than anything else, we will choose 16 clusters for our analysis going forward.</p>
+<p>At this point we should note that our clustering technique can miss quiet a bit. If clusters are of unequal size, are of unequal density, or are not spherical, the k-means algorithm is not appropriate. Investigating these details is beyond the scope of what I am trying to achieve with this post. <a href="https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/">This article</a> provides a further detail on these topics.</p>
+<p>Lets now visualise our clusters. This code plots the cluster characteristics in a radar plot.</p>
+<pre class="r"><code>set.seed(123)
+kclust16 &lt;- kmeans(simfin.cl, 16, nstart = 25)
+kclust16.td &lt;- tidy(kclust16, col.names = c(&quot;td.ta&quot;, &quot;ncl.ta&quot;, &quot;nca.ta&quot;, 
+                                            &quot;oa.ta&quot;, &quot;rev.ta&quot;, &quot;np.ta&quot;, &quot;da.ta&quot;, &quot;rev.vol&quot;))
+# Create data frame assigning cluster names
+kclust16.nm &lt;- kclust16.td %&gt;% 
+  select(-size, -withinss) %&gt;% 
+  gather(attribute, clust.avg, -cluster) %&gt;% 
+  group_by(cluster) %&gt;% 
+  mutate(clust.rank = rank(clust.avg)) %&gt;% 
+  summarise(first = attribute[which(clust.rank == 1)],
+            second = attribute[which(clust.rank == 2)],
+            seventh = attribute[which(clust.rank == 7)],
+            eighth = attribute[which(clust.rank == 8)]) %&gt;% 
+  mutate(clust.name = paste(eighth, seventh, second, first, sep = &quot;_&quot;)) %&gt;% 
+  left_join(kclust16.td, by = &quot;cluster&quot;)
+
+# Radar plot of clusters
+kclust16.nm %&gt;% select(-size, -withinss, -cluster, -first, -second, -seventh, -eighth) %&gt;% 
+  ggRadar(aes(group = clust.name), rescale = FALSE, legend.position = &quot;none&quot;,
+          size = 1, interactive = FALSE, use.label = TRUE, scales = &quot;fixed&quot;) +
+  facet_wrap(~clust.name, ncol = 4) + 
+  scale_y_discrete(breaks = NULL) +
+  labs(title = &quot;Fundamental cluster characteristics&quot;,
+       subtitle = &quot;Facet title represents two highest and lowest cluster centres&quot;,
+       caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com)&quot;) +
+  #ggtitle(&quot;Fundamental cluster characteristics&quot;)
+  theme_grey() +
+  theme(strip.text = element_text(size = 7),
+        legend.position = &quot;none&quot;)</code></pre>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_3-1.png" width="864" style="display: block; margin: auto auto auto 0;" /></p>
+<p>Note that the facet titles are a concatenation of the two highest and two lowest cluster centres. Since our data has been scaled to a unit variance these are comparable metrics.</p>
+</div>
+<div id="step-3---assign-cluster-label-to-stocks-and-fill-forward-cluster-category-to-next-assessment-date" class="section level3">
+<h3>Step 3 - Assign cluster label to stocks and fill forward cluster category to next assessment date</h3>
+<p>We now need to assess cluster membership for specific dates. We will do so on a bi-annual basis. This is done by looping over the fundamental data at the dates required. As mentioned above, clusters are labelled by concatenating the two highest and two lowest cluster centres. The code below returns a data frame listing stocks and their cluster membership by date.</p>
+<pre class="r"><code># Looped implementation
+set.seed(123)
+kclust16.tot = data.frame()
+for (i in c(&#39;2014-01-31&#39;,&#39;2014-07-31&#39;, &#39;2015-01-31&#39;, &#39;2015-07-31&#39;, &#39;2016-01-31&#39;, &#39;2016-07-31&#39;, &#39;2017-01-31&#39;, &#39;2017-07-31&#39;, &#39;2018-01-31&#39;, &#39;2018-07-31&#39;)){
+  # Prepare data
+  x.simfin.cl &lt;- simfin.m %&gt;% filter(me.date == i) %&gt;% 
+    select(Ticker, me.date, SimFin.ID, td.ta:rev.vol, -int.ta) %&gt;% 
+    # SimFin.ID converted to character so as to exclude from mutate_if is.numeric
+    mutate(SimFin.ID = as.character(SimFin.ID), rev.vol = log(rev.vol)) %&gt;% 
+    mutate_if(is.numeric, list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
+    mutate_if(is.numeric, list(~scale(.)))
+  
+  # Apply k-means
+  x.kclust16 &lt;- kmeans(select(x.simfin.cl, -Ticker, -me.date, -SimFin.ID), 16, nstart = 25)
+  
+  # Extract cluster centres via Broom::tidy
+  x.kclust16.td &lt;- tidy(x.kclust16, col.names = c(&quot;td.ta&quot;, &quot;ncl.ta&quot;, &quot;nca.ta&quot;, &quot;oa.ta&quot;, 
+                                                  &quot;rev.ta&quot;, &quot;np.ta&quot;, &quot;da.ta&quot;, &quot;rev.vol&quot;))
+  
+  # Derive cluster names based on two highest and two lowest cluster centres
+  x.kclust16.nm &lt;- x.kclust16.td %&gt;% 
+    select(-size, -withinss) %&gt;% 
+    gather(attribute, clust.avg, -cluster) %&gt;% 
+    group_by(cluster) %&gt;% 
+    mutate(clust.rank = rank(clust.avg)) %&gt;% 
+    summarise(first = attribute[which(clust.rank == 1)],
+              second = attribute[which(clust.rank == 2)],
+              seventh = attribute[which(clust.rank == 7)],
+              eighth = attribute[which(clust.rank == 8)]) %&gt;% 
+    mutate(clust.name = paste(eighth, seventh, second,first, sep = &quot;_&quot;)) %&gt;% 
+    left_join(x.kclust16.td, by = &quot;cluster&quot;)
+  
+  # Join cluster name to orginal data
+  x.kclust16.jn &lt;- augment(x.kclust16, x.simfin.cl) %&gt;% 
+    left_join(x.kclust16.nm, by = c(&quot;.cluster&quot; = &quot;cluster&quot;), suffix = c(&quot;.data&quot;, &quot;.clust&quot;))
+  
+  # Add vector to a dataframe
+  kclust16.tot &lt;- bind_rows(kclust16.tot,x.kclust16.jn) 
+}
+
+# Convert SimFin.ID back to numeric
+kclust16.tot &lt;- kclust16.tot %&gt;% mutate(SimFin.ID = as.numeric(SimFin.ID))</code></pre>
+<p>TODO - insert data table to inspect output</p>
+<p>TODO - build this as a function</p>
+<p>The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.</p>
+<pre class="r"><code># Join tables
+simfin.m &lt;- simfin.m %&gt;% left_join(kclust16.tot, by = c(&quot;me.date&quot;, &quot;Ticker&quot;, &quot;SimFin.ID&quot;)) %&gt;% 
+  group_by(Ticker) %&gt;% fill(td.ta.data:withinss) %&gt;% ungroup()</code></pre>
+<div id="step-4---for-each-date-and-cluster-fit-the-pb-roe-model-and-rank-stocks-based-on-the-resultant-valuation" class="section level4">
+<h4>Step 4 - For each date and cluster, fit the PB-ROE model and rank stocks based on the resultant valuation</h4>
+<p>I first learned about the Price/Book - Return on Equity (“PB-ROE”) model reading <a href="http://alephblog.com/2012/02/25/thinking-about-the-insurance-industry/">this</a> blog. The intuition of fitting a regression line to determine the relationship between return on equity and valuation, and then using deviations from this relationship (the residual from this regression) to determine relative valuation of stocks seemed simple and appealing. After all if some stocks in the same industry (or having the same financial characteristics in our example) have a higher ROE, they should be more valuable.</p>
+<p>The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster and date, and then joins this data back to our main dataframe <code>simfin.m</code>. This block of code relies heavily on the nesting functionailty in the <code>purrr</code> package.</p>
+<pre class="r"><code>simfin.pbroe1 &lt;- simfin.m %&gt;% 
+  # Price to book rato and ROE
+    mutate(ROE = Winsorize(ann.NetProfit / TotalEquity, probs = c(0.02, 0.98), na.rm = TRUE),
+           PB = Winsorize(mkt.cap / TotalEquity, probs = c(0.02, 0.98), na.rm = TRUE),
+           logPB = if_else(PB &lt;= 0, log(1), log(PB))) %&gt;% 
+  
+  # Discard attributes not required
+  select(Ticker, SimFin.ID, me.date, logPB, ROE, clust.name) %&gt;% 
+  
+  # Retain only valid records
+  na.omit() %&gt;% 
+  
+  # Remove bad data created with application of log transform 
+  filter_all(all_vars(!is.infinite(.))) %&gt;% 
+  filter_all(all_vars(!is.nan(.))) %&gt;% 
+  
+  # Nested data frame
+  group_by(me.date, clust.name) %&gt;% nest() %&gt;% 
+  
+  # Fit linear regression / PB-ROE model and return residuals
+  mutate(
+    fit = map(data, ~ lm(logPB ~ ROE, data = .x)),
+    tidied = map(fit, tidy),
+    glanced = map(fit, glance),
+    augmented = map(fit, augment),
+    resids = map2(data, fit, add_residuals)
+  ) 
+
+# Data frame of PB, ROE and model residuals
+simfin.pbroe &lt;- simfin.pbroe1 %&gt;% 
+  unnest(resids)
+
+# Join to monthly data frame
+simfin.m &lt;- simfin.m %&gt;% left_join(simfin.pbroe) %&gt;% 
+  
+  # Add percent rank of residual  TODO - add +ve or -ve residual flag to indicate if
+  # over or under valued and group over this in addition to below.
+  group_by(me.date, clust.name) %&gt;% 
+  mutate(PBROE.rank = percent_rank(desc(resid))) %&gt;% 
+  ungroup() %&gt;% 
+  rename(PBROE.resid = resid)</code></pre>
+<p>The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank. PBROE.resid is the difference between the actual log price book ratio and that predicted by the return on equity. If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model. Likewise a negative residual indicates undervaluation based on our model. PBROE.rank is a descending percent ranking of the PBROE.resid. A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.</p>
+<pre class="r"><code># Plot average r squared of regression model
+# It would be interesting to compare the results of this to applying the PB-ROE model to industries
+r.sq &lt;- simfin.pbroe1 %&gt;% 
+  unnest(glanced) %&gt;% 
+  select(me.date, clust.name, r.squared) %&gt;% 
+  group_by(me.date) %&gt;% 
+  summarise(r.squared = mean(r.squared))
+
+# Scatter plot of sample
+labs &lt;- simfin.m %&gt;% filter(!is.na(clust.name), me.date == &quot;2017-12-31&quot;) %&gt;% 
+  group_by(clust.name) %&gt;%
+  filter(PBROE.resid == max(PBROE.resid) | PBROE.resid == min(PBROE.resid)) %&gt;% 
+  select(Ticker, me.date, clust.name, logPB, ROE, PBROE.resid)
+
+simfin.m %&gt;% 
+  filter(!is.na(clust.name),
+         me.date == &quot;2017-12-31&quot;) %&gt;% 
+  ggplot(aes(x = logPB, y = ROE)) + 
+  facet_wrap(~clust.name, ncol = 6) + 
+  geom_point() +
+  geom_text(data = labs,
+            label = labs$Ticker,
+            check_overlap = TRUE,
+            size = 3,
+            nudge_x = 0.4) +
+  geom_smooth(method = lm)</code></pre>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/pb_roe_check-1.png" width="792" /></p>
+<pre class="r"><code>#https://stackoverflow.com/questions/26558631/predict-lm-in-a-loop-warning-prediction-from-a-rank-deficient-fit-may-be-mis</code></pre>
+<p>TODO: <em>Determine Why cluster <code>oa.ta_nca.ta_td.ta_da.ta</code>as at 31 December 2017 returning only one stock despite the cluster size being 81?</em></p>
+</div>
+<div id="step-5---apply-the-merton-distance-to-default-model-and-rank-stocks-by-probability-of-default" class="section level4">
+<h4>Step 5 - Apply the Merton distance to default model and rank stocks by probability of default</h4>
+<p>TODO: <em>Insert introductory explanation of Merton model here. Why does full version need iteration? Show summarised version. What does the DD actually represent?</em></p>
+<p>The Merton distance to default model has been modified in this paper: <a href="https://econpapers.repec.org/paper/utsrpaper/112.htm">Merton for dummies</a></p>
+<p>Fistly, we need to prepare data for Merton model. The three inputs are Market cap, debt and equity return volatilty. We do not have equity volatility so this is calculated below.</p>
+<pre class="r"><code># Price - filter attributes and dates required
+simfin.d &lt;- simfin %&gt;% filter(Indicator.Name == &quot;Share Price&quot; &amp; publish.date &gt; &quot;2011-12-31&quot;) %&gt;% 
+mutate(me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
+
+  # Group and remove Tickers with sufficient days data to satisfy rolling function
+  group_by(Ticker, SimFin.ID) %&gt;% 
+  mutate(date_count = n()) %&gt;% filter(date_count &gt; 60, !Ticker == &quot;&quot;) %&gt;% 
+  
+  # Create daily returns and rolling volatility
+  mutate(rtn = log(Indicator.Value)-lag(log(Indicator.Value)),
+         vol_3m = roll_sd(rtn, n = 60, na.rm = TRUE, align = &quot;right&quot;, fill = NA) * sqrt(252)) %&gt;% 
+  
+  # Roll up to monthly periodicity
+  group_by(Ticker, SimFin.ID, me.date) %&gt;% 
+  summarise(vol_3m = last(vol_3m),
+            SharePrice = last(Indicator.Value)) %&gt;% 
+  ungroup()
+
+# Join to monthly data frame
+simfin.m &lt;- simfin.m %&gt;% left_join(simfin.d)</code></pre>
+<p>We now create the distance to default and a descending percent ranking thereof (MertonDD.rank).</p>
+<pre class="r"><code># Create Merton DD.  TODO - resolve infinity
+simfin.m &lt;- simfin.m %&gt;% 
+  mutate(MertonDD = if_else(TotalDebt == 0 | vol_3m == 0, 25,
+                       log(1/(TotalDebt / (TotalDebt + mkt.cap))) / 
+                       (vol_3m * (1-(TotalDebt/(TotalDebt + mkt.cap))))),
+         MertonDD.rank = percent_rank(desc(MertonDD)))</code></pre>
+<p>TODO: <em>Visualise the results of the DD</em></p>
+<p>A MertonDD.rank value of 1 is the highest value of distance to default, these are stocks that are unlikely to default and hence have low credit risk. Likewise lower values of MertonDD.rank represent stocks with smaller distance to default and higher credit risk.</p>
+<p>In the introductions we stated that stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss. We therefore need to combine our ranking and come up with a single measure with which to apply and ECL and risk stage. The code block below takes the average of our two percent rank measures (PBROE.rank and MertonDD.rank), ranks the result and assigns an ECL on the following scale.</p>
+</div>
+<div id="step-6---combine-the-rankings-of-the-valuation-and-default-models-and-assign-an-ecl-and-risk-stage" class="section level4">
+<h4>Step 6 - Combine the rankings of the valuation and default models, and assign an ECL and risk stage</h4>
+<p>TODO - ALL OF STEP 6</p>
+<pre class="r"><code># Create Merton DD.  TODO - resolve infinity
+simfin.m &lt;- simfin.m %&gt;% 
+  group_by(me.date) %&gt;% 
+  mutate(avg.rank = (PBROE.rank + MertonDD.rank) /2,
+         comb.rank = percent_rank(avg.rank)) %&gt;% 
+  ungroup() %&gt;% 
+  mutate(cover = case_when(comb.rank &gt;= 0.95 ~ comb.rank * 0.50,
+                           comb.rank &gt;= 0.85 ~ comb.rank * 0.40,
+                           comb.rank &gt;= 0.75 ~ comb.rank * 0.30,
+                           comb.rank &gt;= 0.65 ~ comb.rank * 0.20,
+                           comb.rank &gt;= 0.45 ~ comb.rank * 0.10,
+                           comb.rank &gt;= 0.25 ~ comb.rank * 0.05,
+                           TRUE ~ comb.rank * 0.025 * TotalDebt
+                           ),
+         ECL = cover * TotalDebt)</code></pre>
+</div>
+</div>
+<div id="references" class="section level3">
+<h3>References</h3>
+<p><a href="https://econpapers.repec.org/paper/utsrpaper/112.htm">Merton for dummies</a><br />
+<a href="https://seekingalpha.com/article/40398-pb-roe-analysis-a-very-useful-tool">PB-ROE link1</a><br />
+<a href="https://www.seactuary.com/files/handouts/wall_street_view_of_insurers.pdf">PB-ROE link2</a><br />
+<a href="https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/">descriptr</a><br />
+<a href="http://www.bradfordlynch.com/blog/2017/05/20/ProbabilityOfDefault.html">Merton</a></p>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>I am yet to find a way to correct the formatting of tables produced using the kableExtra package. They should look something like <a href="https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html#bootstrap_theme">this</a>. Instead, I end up with something similar to that demonstrated <a href="https://brentmorrison.netlify.com/post/test-post/">here</a>. Stackoverflow tells me there is a whole lot of messing with CSS code required to get that sorted out. Not having the time for that, the tables produced by the <a href="https://rstudio.github.io/DT/">DT</a> package will do for now.<a href="#fnref1" class="footnote-back">↩</a></p></li>
+</ol>
+</div>
