@@ -14,14 +14,8 @@ topics: []
 ---
 
 <script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
-<script src="/rmarkdown-libs/jquery/jquery.min.js"></script>
-<link href="/rmarkdown-libs/datatables-css/datatables-crosstalk.css" rel="stylesheet" />
-<script src="/rmarkdown-libs/datatables-binding/datatables.js"></script>
-<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.min.css" rel="stylesheet" />
-<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.extra.css" rel="stylesheet" />
-<script src="/rmarkdown-libs/dt-core/js/jquery.dataTables.min.js"></script>
-<link href="/rmarkdown-libs/crosstalk/css/crosstalk.css" rel="stylesheet" />
-<script src="/rmarkdown-libs/crosstalk/js/crosstalk.min.js"></script>
+<script src="/rmarkdown-libs/pymjs/pym.v1.js"></script>
+<script src="/rmarkdown-libs/widgetframe-binding/widgetframe.js"></script>
 
 
 <p><em>This post is incomplete. Outstanding actions are labelled TODO</em></p>
@@ -56,6 +50,7 @@ library(&quot;kableExtra&quot;)
 library(&quot;summarytools&quot;)
 library(&quot;data.table&quot;)
 library(&quot;DT&quot;)
+library(&quot;widgetframe&quot;)
 library(&quot;htmltools&quot;)</code></pre>
 <p>Next, we read in the Simfin raw data and create the market capitalisation attribute and market capitalisation cut-offs. This is the same initial step that was performed in the prior post.</p>
 <pre class="r"><code>simfin &lt;- fread(&quot;C:/Users/brent/Documents/R/R_import/output-comma-narrow.csv&quot;) %&gt;% 
@@ -96,8 +91,8 @@ simfin.m &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&q
   as_tbl_time(index = publish.date) %&gt;% 
   
   # Group and remove Tickers with insufficient days data to satisfy rolling function
-  group_by(Ticker) %&gt;% 
-  mutate(date_count = n()) %&gt;% filter(date_count &gt; 3, !Ticker == &quot;&quot;) %&gt;% 
+  group_by(Ticker) %&gt;% mutate(date_count = n()) %&gt;% 
+  ungroup() %&gt;% filter(date_count &gt; 3, !Ticker == &quot;&quot;) %&gt;% group_by(Ticker) %&gt;%
   
   # Quarterly to annual aggregation for P&amp;L line times
   mutate(ann.Revenues = roll_sum(Revenues, n = 4, na.rm = TRUE, align = &quot;right&quot;, fill = NA),
@@ -128,13 +123,13 @@ simfin.m &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&q
   complete(me.date = seq(as.Date(&quot;2012-01-01&quot;), as.Date(&quot;2019-01-01&quot;), by = &quot;month&quot;) - 1, Ticker) %&gt;% 
       
   # Fill forward post attribute creation
-  group_by(Ticker) %&gt;% fill(everything()) %&gt;% ungroup() %&gt;%
+  group_by(Ticker) %&gt;% fill(everything(), -Ticker) %&gt;% ungroup() %&gt;%
   
   # Filter any record with an attribute returning NA
   drop_na() </code></pre>
 <p>Summary statistics and a density plot of the financial ratios to be used for clustering are returned below. Note that this data covers all dates. When the clustering algorithm is applied it will be done so to the stock data at a specific date. The output below can be considered an initial exploratory data analysis to determine if the data is fit for ingestion to the clustering process.</p>
 <pre class="r"><code># View summary statistics
-simfin.m %&gt;% select(td.ta:rev.vol) %&gt;% 
+dt12 &lt;- simfin.m %&gt;% select(td.ta:rev.vol) %&gt;% 
   descr(style = &quot;rmarkdown&quot;) %&gt;% 
   round(2) %&gt;% 
   datatable(
@@ -155,9 +150,11 @@ simfin.m %&gt;% select(td.ta:rev.vol) %&gt;%
          )
       ),
       escape = FALSE
-  )</code></pre>
-<div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
-<script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0.04,0.03,-0.24,0.02,0.03,0.05,0.64,0.02,0.02,0.86,6.45,0.01,80.23,56556,100],[0.06,0.09,0,0,0.01,0.08,0.81,0.01,0.08,1.67,2.68,0.01,9.79,56556,100],[0.62,0.23,0,0.45,0.63,0.81,1,0.27,0.36,0.38,-0.38,0.01,-0.65,56556,100],[0.37,0.45,-0.08,0.18,0.36,0.51,21.41,0.24,0.33,1.19,26.1,0.01,1006.7,56556,100],[0.05,0.11,-2.95,0.02,0.05,0.09,0.83,0.05,0.07,2.32,-6.17,0.01,136.44,56556,100],[0.34,0.23,0,0.15,0.31,0.51,0.95,0.26,0.36,0.67,0.43,0.01,-0.77,56556,100],[0.83,0.71,-0.46,0.36,0.64,1.08,8.89,0.48,0.72,0.85,2.75,0.01,15.26,56556,100],[0.15,0.26,0,0.04,0.07,0.16,4.04,0.07,0.12,1.71,5.97,0.01,51.8,56556,100],[0.29,0.46,0,0.13,0.27,0.4,24.93,0.2,0.27,1.56,32.03,0.01,1397.67,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>int.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8,9]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
+  )
+
+frameWidget(dt12)</code></pre>
+<div id="htmlwidget-1" style="width:100%;height:792px;" class="widgetframe html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"url":"/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html//widgets/widget_step_1_2.html","options":{"xdomain":"*","allowfullscreen":false,"lazyload":false}},"evals":[],"jsHooks":[]}</script>
 <p>A not about table formatting <a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
 <pre class="r"><code># Plot density graph
 simfin.m %&gt;% 
@@ -180,7 +177,7 @@ simfin.m %&gt;%
 <li><p>The attributes we have used are on different scales. Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items. Revenue volatility is on a seperate scale altogether. The use of attributes with differing scales is not appropriate for ingestion to the k-means clustering algorithm. This is because one attribute can dominate others should it have greater dispersion. The answers to <a href="https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering">this</a> Stack Overflow question go into further detail around this effect. In light of this we will centre and scale the data.</p></li>
 </ol>
 <pre class="r"><code># View summary statistics
-simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;% 
+dt14 &lt;- simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;% 
   mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
   mutate_all(list(~scale(.))) %&gt;% round(2) %&gt;% 
   descr(style = &quot;rmarkdown&quot;) %&gt;% round(2) %&gt;% 
@@ -202,9 +199,11 @@ simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;%
            )
     ),
     escape = FALSE
-  )</code></pre>
-<div id="htmlwidget-2" style="width:100%;height:auto;" class="datatables html-widget"></div>
-<script type="application/json" data-for="htmlwidget-2">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0,1,-1.57,-0.63,-0.18,0.39,3.78,0.74,1.02,19366.9,1.37,0.01,2.53,56556,100],[-0,1,-2.46,-0.72,0.05,0.85,1.58,1.16,1.57,-201974.75,-0.37,0.01,-0.69,56556,100],[-0,1,-1.56,-0.77,-0.03,0.64,3.26,1.04,1.41,-43499.44,0.55,0.01,0.31,56556,100],[0,1,-4.85,-0.32,0.02,0.45,2.44,0.56,0.77,19238.27,-1.66,0.01,7.02,56556,100],[0,1,-1.48,-0.83,-0.13,0.73,2.31,1.14,1.56,89783.75,0.42,0.01,-0.81,56556,100],[0,1,-1.2,-0.72,-0.28,0.41,3.79,0.76,1.13,19171.51,1.48,0.01,2.23,56556,100],[0,1,-0.67,-0.53,-0.36,0.07,5.57,0.31,0.6,31076.46,3.35,0.01,13.24,56556,100],[0,1,-1.38,-0.76,-0.04,0.59,3.11,1.01,1.35,1752.04,0.62,0.01,0.27,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
+  )
+
+frameWidget(dt14)</code></pre>
+<div id="htmlwidget-2" style="width:100%;height:792px;" class="widgetframe html-widget"></div>
+<script type="application/json" data-for="htmlwidget-2">{"x":{"url":"/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html//widgets/widget_step_1_4.html","options":{"xdomain":"*","allowfullscreen":false,"lazyload":false}},"evals":[],"jsHooks":[]}</script>
 <pre class="r"><code># Plot density graph
 simfin.m %&gt;% 
   select(td.ta:rev.vol, -int.ta) %&gt;% 
@@ -230,7 +229,7 @@ simfin.m %&gt;%
 <li>It’s also worth noting the co-efficient of variation is now meaningless since the mean is nil after centering the data.</li>
 </ol>
 <pre class="r"><code># View summary statistics
-simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;% 
+dt16 &lt;- simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;% 
   mutate(rev.vol = log(rev.vol)) %&gt;% 
   mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %&gt;% 
   mutate_all(list(~scale(.))) %&gt;% round(2) %&gt;% 
@@ -253,9 +252,11 @@ simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;%
            )
     ),
     escape = FALSE
-  )</code></pre>
-<div id="htmlwidget-3" style="width:100%;height:auto;" class="datatables html-widget"></div>
-<script type="application/json" data-for="htmlwidget-3">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0,1,-1.57,-0.63,-0.18,0.39,3.78,0.74,1.02,19366.9,1.37,0.01,2.53,56556,100],[-0,1,-2.46,-0.72,0.05,0.85,1.58,1.16,1.57,-201974.75,-0.37,0.01,-0.69,56556,100],[-0,1,-1.56,-0.77,-0.03,0.64,3.26,1.04,1.41,-43499.44,0.55,0.01,0.31,56556,100],[0,1,-4.85,-0.32,0.02,0.45,2.44,0.56,0.77,19238.27,-1.66,0.01,7.02,56556,100],[0,1,-1.48,-0.83,-0.13,0.73,2.31,1.14,1.56,89783.75,0.42,0.01,-0.81,56556,100],[0,1,-1.2,-0.72,-0.28,0.41,3.79,0.76,1.13,19171.51,1.48,0.01,2.23,56556,100],[-0,1,-2.12,-0.71,-0.1,0.65,2.65,0.99,1.36,-15285.46,0.35,0.01,-0.2,56556,100],[0,1,-1.38,-0.76,-0.04,0.59,3.11,1.01,1.35,1752.04,0.62,0.01,0.27,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
+  )
+
+frameWidget(dt16)</code></pre>
+<div id="htmlwidget-3" style="width:100%;height:792px;" class="widgetframe html-widget"></div>
+<script type="application/json" data-for="htmlwidget-3">{"x":{"url":"/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html//widgets/widget_step_1_6.html","options":{"xdomain":"*","allowfullscreen":false,"lazyload":false}},"evals":[],"jsHooks":[]}</script>
 <pre class="r"><code># Plot density graph
 simfin.m %&gt;% 
   #filter(me.date == &#39;2013-10-31&#39;) %&gt;% 
@@ -539,7 +540,7 @@ simfin.m &lt;- simfin.m %&gt;%
 <p><a href="https://econpapers.repec.org/paper/utsrpaper/112.htm">Merton for dummies</a><br />
 <a href="https://seekingalpha.com/article/40398-pb-roe-analysis-a-very-useful-tool">PB-ROE link1</a><br />
 <a href="https://www.seactuary.com/files/handouts/wall_street_view_of_insurers.pdf">PB-ROE link2</a><br />
-<a href="https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/">descriptr</a><br />
+<a href="https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/">descriptr</a>
 <a href="http://www.bradfordlynch.com/blog/2017/05/20/ProbabilityOfDefault.html">Merton</a></p>
 </div>
 <div class="footnotes">

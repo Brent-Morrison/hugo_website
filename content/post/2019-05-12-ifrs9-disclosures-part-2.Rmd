@@ -53,6 +53,7 @@ library("kableExtra")
 library("summarytools")
 library("data.table")
 library("DT")
+library("widgetframe")
 library("htmltools")
 ```
 
@@ -100,8 +101,8 @@ simfin.m <- simfin %>% filter(Indicator.Name %in% c("Book to Market", "Total Equ
   as_tbl_time(index = publish.date) %>% 
   
   # Group and remove Tickers with insufficient days data to satisfy rolling function
-  group_by(Ticker) %>% 
-  mutate(date_count = n()) %>% filter(date_count > 3, !Ticker == "") %>% 
+  group_by(Ticker) %>% mutate(date_count = n()) %>% 
+  ungroup() %>% filter(date_count > 3, !Ticker == "") %>% group_by(Ticker) %>%
   
   # Quarterly to annual aggregation for P&L line times
   mutate(ann.Revenues = roll_sum(Revenues, n = 4, na.rm = TRUE, align = "right", fill = NA),
@@ -132,7 +133,7 @@ simfin.m <- simfin %>% filter(Indicator.Name %in% c("Book to Market", "Total Equ
   complete(me.date = seq(as.Date("2012-01-01"), as.Date("2019-01-01"), by = "month") - 1, Ticker) %>% 
       
   # Fill forward post attribute creation
-  group_by(Ticker) %>% fill(everything()) %>% ungroup() %>%
+  group_by(Ticker) %>% fill(everything(), -Ticker) %>% ungroup() %>%
   
   # Filter any record with an attribute returning NA
   drop_na() 
@@ -143,7 +144,7 @@ Summary statistics and a density plot of the financial ratios to be used for clu
 
 ```{r step_1_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
-simfin.m %>% select(td.ta:rev.vol) %>% 
+dt12 <- simfin.m %>% select(td.ta:rev.vol) %>% 
   descr(style = "rmarkdown") %>% 
   round(2) %>% 
   datatable(
@@ -165,6 +166,8 @@ simfin.m %>% select(td.ta:rev.vol) %>%
       ),
       escape = FALSE
   )
+
+frameWidget(dt12)
 ```
 
 A not about table formatting [^1].
@@ -199,7 +202,7 @@ Inspection of the histograms and summary statisitic show a number of issues with
 
 ```{r step_1_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
-simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
+dt14 <- simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
   mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %>% 
   mutate_all(list(~scale(.))) %>% round(2) %>% 
   descr(style = "rmarkdown") %>% round(2) %>% 
@@ -222,6 +225,8 @@ simfin.m %>% select(td.ta:rev.vol, -int.ta) %>%
     ),
     escape = FALSE
   )
+
+frameWidget(dt14)
 ```
 
 ```{r step_1_5, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
@@ -250,7 +255,7 @@ This provides us with a dataset that is more appropriate for clustering.  Some f
 
 ```{r step_1_6, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
-simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
+dt16 <- simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
   mutate(rev.vol = log(rev.vol)) %>% 
   mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %>% 
   mutate_all(list(~scale(.))) %>% round(2) %>% 
@@ -274,6 +279,8 @@ simfin.m %>% select(td.ta:rev.vol, -int.ta) %>%
     ),
     escape = FALSE
   )
+
+frameWidget(dt16)
 ```
 
 ```{r step_1_7, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
@@ -612,7 +619,7 @@ simfin.m <- simfin.m %>%
 [Merton for dummies](https://econpapers.repec.org/paper/utsrpaper/112.htm)  
 [PB-ROE link1](https://seekingalpha.com/article/40398-pb-roe-analysis-a-very-useful-tool)  
 [PB-ROE link2](https://www.seactuary.com/files/handouts/wall_street_view_of_insurers.pdf)  
-[descriptr](https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/)  
+[descriptr](https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/)
 [Merton](http://www.bradfordlynch.com/blog/2017/05/20/ProbabilityOfDefault.html)
 
 
