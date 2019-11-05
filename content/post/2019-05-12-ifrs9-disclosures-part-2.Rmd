@@ -144,7 +144,7 @@ Summary statistics and a density plot of the financial ratios to be used for clu
 
 ```{r step_1_2, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
-dt12 <- simfin.m %>% select(td.ta:rev.vol) %>% 
+simfin.m %>% select(td.ta:rev.vol) %>% 
   descr(style = "rmarkdown") %>% 
   round(2) %>% 
   datatable(
@@ -166,8 +166,6 @@ dt12 <- simfin.m %>% select(td.ta:rev.vol) %>%
       ),
       escape = FALSE
   )
-
-frameWidget(dt12)
 ```
 
 A not about table formatting [^1].
@@ -226,7 +224,7 @@ dt14 <- simfin.m %>% select(td.ta:rev.vol, -int.ta) %>%
     escape = FALSE
   )
 
-frameWidget(dt14)
+frameWidget(dt14, height = 500)
 ```
 
 ```{r step_1_5, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
@@ -356,7 +354,7 @@ Normally k is selected at the point at which the above plot shows a sharp "elbow
 At this point we should note that our clustering technique can miss quiet a bit.  If clusters are of unequal size, are of unequal density, or are not spherical, the k-means algorithm is not appropriate.  Investigating these details is beyond the scope of what I am trying to achieve with this post.  [This article](https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/) provides a further detail on these topics.
 
 Lets now visualise our clusters.  This code plots the cluster characteristics in a radar plot.
-```{r step_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=9, fig.height=9, fig.align='left'}  
+```{r step_3, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25, fig.align='left'}  
 set.seed(123)
 kclust16 <- kmeans(simfin.cl, 16, nstart = 25)
 kclust16.td <- tidy(kclust16, col.names = c("td.ta", "ncl.ta", "nca.ta", 
@@ -378,7 +376,7 @@ kclust16.nm <- kclust16.td %>%
 kclust16.nm %>% select(-size, -withinss, -cluster, -first, -second, -seventh, -eighth) %>% 
   ggRadar(aes(group = clust.name), rescale = FALSE, legend.position = "none",
           size = 1, interactive = FALSE, use.label = TRUE, scales = "fixed") +
-  facet_wrap(~clust.name, ncol = 4) + 
+  facet_wrap(~clust.name, ncol = 5) + 
   scale_y_discrete(breaks = NULL) +
   labs(title = "Fundamental cluster characteristics",
        subtitle = "Facet title represents two highest and lowest cluster centres",

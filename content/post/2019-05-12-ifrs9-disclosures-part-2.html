@@ -14,6 +14,14 @@ topics: []
 ---
 
 <script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/jquery/jquery.min.js"></script>
+<link href="/rmarkdown-libs/datatables-css/datatables-crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/datatables-binding/datatables.js"></script>
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.min.css" rel="stylesheet" />
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.extra.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/dt-core/js/jquery.dataTables.min.js"></script>
+<link href="/rmarkdown-libs/crosstalk/css/crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/crosstalk/js/crosstalk.min.js"></script>
 <script src="/rmarkdown-libs/pymjs/pym.v1.js"></script>
 <script src="/rmarkdown-libs/widgetframe-binding/widgetframe.js"></script>
 
@@ -129,7 +137,7 @@ simfin.m &lt;- simfin %&gt;% filter(Indicator.Name %in% c(&quot;Book to Market&q
   drop_na() </code></pre>
 <p>Summary statistics and a density plot of the financial ratios to be used for clustering are returned below. Note that this data covers all dates. When the clustering algorithm is applied it will be done so to the stock data at a specific date. The output below can be considered an initial exploratory data analysis to determine if the data is fit for ingestion to the clustering process.</p>
 <pre class="r"><code># View summary statistics
-dt12 &lt;- simfin.m %&gt;% select(td.ta:rev.vol) %&gt;% 
+simfin.m %&gt;% select(td.ta:rev.vol) %&gt;% 
   descr(style = &quot;rmarkdown&quot;) %&gt;% 
   round(2) %&gt;% 
   datatable(
@@ -150,11 +158,9 @@ dt12 &lt;- simfin.m %&gt;% select(td.ta:rev.vol) %&gt;%
          )
       ),
       escape = FALSE
-  )
-
-frameWidget(dt12)</code></pre>
-<div id="htmlwidget-1" style="width:100%;height:792px;" class="widgetframe html-widget"></div>
-<script type="application/json" data-for="htmlwidget-1">{"x":{"url":"/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html//widgets/widget_step_1_2.html","options":{"xdomain":"*","allowfullscreen":false,"lazyload":false}},"evals":[],"jsHooks":[]}</script>
+  )</code></pre>
+<div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0.04,0.03,-0.24,0.02,0.03,0.05,0.64,0.02,0.02,0.86,6.45,0.01,80.23,56556,100],[0.06,0.09,0,0,0.01,0.08,0.81,0.01,0.08,1.67,2.68,0.01,9.79,56556,100],[0.62,0.23,0,0.45,0.63,0.81,1,0.27,0.36,0.38,-0.38,0.01,-0.65,56556,100],[0.37,0.45,-0.08,0.18,0.36,0.51,21.41,0.24,0.33,1.19,26.1,0.01,1006.7,56556,100],[0.05,0.11,-2.95,0.02,0.05,0.09,0.83,0.05,0.07,2.32,-6.17,0.01,136.44,56556,100],[0.34,0.23,0,0.15,0.31,0.51,0.95,0.26,0.36,0.67,0.43,0.01,-0.77,56556,100],[0.83,0.71,-0.46,0.36,0.64,1.08,8.89,0.48,0.72,0.85,2.75,0.01,15.26,56556,100],[0.15,0.26,0,0.04,0.07,0.16,4.04,0.07,0.12,1.71,5.97,0.01,51.8,56556,100],[0.29,0.46,0,0.13,0.27,0.4,24.93,0.2,0.27,1.56,32.03,0.01,1397.67,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>int.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8,9]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
 <p>A not about table formatting <a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
 <pre class="r"><code># Plot density graph
 simfin.m %&gt;% 
@@ -201,8 +207,8 @@ dt14 &lt;- simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;%
     escape = FALSE
   )
 
-frameWidget(dt14)</code></pre>
-<div id="htmlwidget-2" style="width:100%;height:792px;" class="widgetframe html-widget"></div>
+frameWidget(dt14, height = 500)</code></pre>
+<div id="htmlwidget-2" style="width:100%;height:500px;" class="widgetframe html-widget"></div>
 <script type="application/json" data-for="htmlwidget-2">{"x":{"url":"/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html//widgets/widget_step_1_4.html","options":{"xdomain":"*","allowfullscreen":false,"lazyload":false}},"evals":[],"jsHooks":[]}</script>
 <pre class="r"><code># Plot density graph
 simfin.m %&gt;% 
@@ -340,7 +346,7 @@ kclust16.nm &lt;- kclust16.td %&gt;%
 kclust16.nm %&gt;% select(-size, -withinss, -cluster, -first, -second, -seventh, -eighth) %&gt;% 
   ggRadar(aes(group = clust.name), rescale = FALSE, legend.position = &quot;none&quot;,
           size = 1, interactive = FALSE, use.label = TRUE, scales = &quot;fixed&quot;) +
-  facet_wrap(~clust.name, ncol = 4) + 
+  facet_wrap(~clust.name, ncol = 5) + 
   scale_y_discrete(breaks = NULL) +
   labs(title = &quot;Fundamental cluster characteristics&quot;,
        subtitle = &quot;Facet title represents two highest and lowest cluster centres&quot;,
@@ -349,7 +355,7 @@ kclust16.nm %&gt;% select(-size, -withinss, -cluster, -first, -second, -seventh,
   theme_grey() +
   theme(strip.text = element_text(size = 7),
         legend.position = &quot;none&quot;)</code></pre>
-<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_3-1.png" width="864" style="display: block; margin: auto auto auto 0;" /></p>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_3-1.png" width="792" style="display: block; margin: auto auto auto 0;" /></p>
 <p>Note that the facet titles are a concatenation of the two highest and two lowest cluster centres. Since our data has been scaled to a unit variance these are comparable metrics.</p>
 </div>
 <div id="step-3---assign-cluster-label-to-stocks-and-fill-forward-cluster-category-to-next-assessment-date" class="section level3">
