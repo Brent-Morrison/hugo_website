@@ -200,7 +200,7 @@ Inspection of the histograms and summary statisitic show a number of issues with
 
 ```{r step_1_4, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
-dt14 <- simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
+simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
   mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %>% 
   mutate_all(list(~scale(.))) %>% round(2) %>% 
   descr(style = "rmarkdown") %>% round(2) %>% 
@@ -223,8 +223,6 @@ dt14 <- simfin.m %>% select(td.ta:rev.vol, -int.ta) %>%
     ),
     escape = FALSE
   )
-
-frameWidget(dt14, height = 500)
 ```
 
 ```{r step_1_5, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
@@ -253,7 +251,7 @@ This provides us with a dataset that is more appropriate for clustering.  Some f
 
 ```{r step_1_6, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
 # View summary statistics
-dt16 <- simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
+simfin.m %>% select(td.ta:rev.vol, -int.ta) %>% 
   mutate(rev.vol = log(rev.vol)) %>% 
   mutate_all(list(~Winsorize(.,probs = c(0.01, 0.99), na.rm = TRUE))) %>% 
   mutate_all(list(~scale(.))) %>% round(2) %>% 
@@ -261,24 +259,22 @@ dt16 <- simfin.m %>% select(td.ta:rev.vol, -int.ta) %>%
   datatable(
       options = list(pageLength = 15),
       caption = tags$caption(
-        style = 'caption-side: bottom; text-align: left;',
-        em(      
-           'Financial ratio legend:', tags$br(),
-           'da.ta: Depreciation & amortisation / total assets', tags$br(),
-           'int.ta: Intangibles / total assets', tags$br(),
-           'nca.ta: Non-current assets / total assets', tags$br(),
-           'ncl.ta: Non-current liabilities / total assets', tags$br(),
-           'np.ta: Net profit / total assets', tags$br(),
-           'oa.ta: Other assets / total assets', tags$br(),
-           'rev.ta: Revenue / total assets', tags$br(),
-           'td.ta: Total debt / total assets', tags$br(),
-           'rev.vol: Revenue volatility'
-           )
-    ),
-    escape = FALSE
+      style = 'caption-side: bottom; text-align: left;',
+      em(
+        'Financial ratio legend:', tags$br(),
+        'da.ta: Depreciation & amortisation / total assets', tags$br(),
+        'int.ta: Intangibles / total assets', tags$br(),
+        'nca.ta: Non-current assets / total assets', tags$br(),
+        'ncl.ta: Non-current liabilities / total assets', tags$br(),
+        'np.ta: Net profit / total assets', tags$br(),
+        'oa.ta: Other assets / total assets', tags$br(),
+        'rev.ta: Revenue / total assets', tags$br(),
+        'td.ta: Total debt / total assets', tags$br(),
+        'rev.vol: Revenue volatility'
+         )
+      ),
+      escape = FALSE
   )
-
-frameWidget(dt16)
 ```
 
 ```{r step_1_7, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}
