@@ -24,12 +24,12 @@ topics: []
 <script src="/rmarkdown-libs/crosstalk/js/crosstalk.min.js"></script>
 
 
-<p><em>This post is incomplete. Outstanding actions are labelled TODO</em></p>
+<p><em>This post is incomplete. Outstanding actions are labelled “TO DO”</em></p>
 <p>This post is a continuation of the series initiated <a href="https://brentmorrison.netlify.com/post/ifrs9-disclosures/">here</a>.</p>
-<p>Recall our problem imagines we are a bank lending to the largest 1,000 US companies. We (“Bank1000”) own the debt of these companies and are required to prepare IFRS9 disclosures. This requires the estimatation of an expected credit loss (“ECL”) and risk stage.</p>
+<p>Recall our problem imagines we are a bank lending to the largest 1,000 US companies. We (“Bank1000”) own the debt of these companies and are required to prepare IFRS9 disclosures. This requires the estimation of an expected credit loss (“ECL”) and risk stage.</p>
 <p>We have already selected the top 1,000 stocks for analysis, we now need to create an ECL balance and assign a risk stage.</p>
 <p>The ECL is a probability weighted estimate of credit losses. The risk stage takes three values and indicates whether a loan has had no change in credit risk since origination (Stage 1), has experienced a significant increase in credit risk since origination (Stage 2) or if the loan is credit impaired (Stage 3). We are going to estimate the expected credit loss and risk stage via measurements of valuation and default risk. We do not know the level of credit risk at origination, so the risk stage will be assigned based on the current level of credit risk as opposed to the change since origination.</p>
-<p>Stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss. A high default risk is obviously a natural proxy for expected credit loss, the ECL is designed to reflect default risk. A low valuation will also proxy credit risk on the basis that should a stock be trading at a significant discount to it’s peers, it is likely to be experiencing heightened credit risk.</p>
+<p>Stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss. High default risk is obviously a natural proxy for expected credit loss, the ECL is designed to reflect default risk. Low valuation will also proxy credit risk on the basis that should a stock be trading at a significant discount to it’s peers, it is likely to be experiencing heightened credit risk.</p>
 <p>How will valuation and default risk be assessed? Valuation will be assessed using the Price/Book - Return on Equity (“PB-ROE”) model. Default risk will be assessed using the using the Merton distance to default model. Both of these methods will be explained in further detail below. It should be noted that the PB-ROE model will be applied to groups of similar stocks. The similarity of stocks is not going to be assessed via industry or sector membership, but rather by similarity of fundamental characteristics. This will be determined by applying a clustering algorithm.</p>
 <p>This is all going to take some significant data engineering. In broad terms this will look as follows:</p>
 <ol style="list-style-type: decimal">
@@ -159,7 +159,7 @@ simfin.m %&gt;% select(td.ta:rev.vol) %&gt;%
   )</code></pre>
 <div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
 <script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","caption":"<caption style=\"caption-side: bottom; text-align: left;\">\n  <em>\n    Financial ratio legend:\n    <br/>\n    da.ta: Depreciation &amp; amortisation / total assets\n    <br/>\n    int.ta: Intangibles / total assets\n    <br/>\n    nca.ta: Non-current assets / total assets\n    <br/>\n    ncl.ta: Non-current liabilities / total assets\n    <br/>\n    np.ta: Net profit / total assets\n    <br/>\n    oa.ta: Other assets / total assets\n    <br/>\n    rev.ta: Revenue / total assets\n    <br/>\n    td.ta: Total debt / total assets\n    <br/>\n    rev.vol: Revenue volatility\n  <\/em>\n<\/caption>","data":[["Mean","Std.Dev","Min","Q1","Median","Q3","Max","MAD","IQR","CV","Skewness","SE.Skewness","Kurtosis","N.Valid","Pct.Valid"],[0.04,0.03,-0.24,0.02,0.03,0.05,0.64,0.02,0.02,0.86,6.45,0.01,80.23,56556,100],[0.06,0.09,0,0,0.01,0.08,0.81,0.01,0.08,1.67,2.68,0.01,9.79,56556,100],[0.62,0.23,0,0.45,0.63,0.81,1,0.27,0.36,0.38,-0.38,0.01,-0.65,56556,100],[0.37,0.45,-0.08,0.18,0.36,0.51,21.41,0.24,0.33,1.19,26.1,0.01,1006.7,56556,100],[0.05,0.11,-2.95,0.02,0.05,0.09,0.83,0.05,0.07,2.32,-6.17,0.01,136.44,56556,100],[0.34,0.23,0,0.15,0.31,0.51,0.95,0.26,0.36,0.67,0.43,0.01,-0.77,56556,100],[0.83,0.71,-0.46,0.36,0.64,1.08,8.89,0.48,0.72,0.85,2.75,0.01,15.26,56556,100],[0.15,0.26,0,0.04,0.07,0.16,4.04,0.07,0.12,1.71,5.97,0.01,51.8,56556,100],[0.29,0.46,0,0.13,0.27,0.4,24.93,0.2,0.27,1.56,32.03,0.01,1397.67,56556,100]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>da.ta<\/th>\n      <th>int.ta<\/th>\n      <th>nca.ta<\/th>\n      <th>ncl.ta<\/th>\n      <th>np.ta<\/th>\n      <th>oa.ta<\/th>\n      <th>rev.ta<\/th>\n      <th>rev.vol<\/th>\n      <th>td.ta<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"pageLength":15,"columnDefs":[{"className":"dt-right","targets":[1,2,3,4,5,6,7,8,9]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false,"lengthMenu":[10,15,25,50,100]}},"evals":[],"jsHooks":[]}</script>
-<p>A not about table formatting <a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
+<p>A note about table formatting <a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
 <pre class="r"><code># Plot density graph
 simfin.m %&gt;% 
   select(td.ta:da.ta) %&gt;% gather(ratio, value) %&gt;% 
@@ -173,12 +173,12 @@ simfin.m %&gt;%
         axis.title.y = element_text(color = &quot;darkslategrey&quot;),
         plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_1_3-1.png" width="792" /></p>
-<p>Inspection of the histograms and summary statisitic show a number of issues with this data that need to be addressed before proceeding:</p>
+<p>Inspection of the histograms and summary statistic show a number of issues with this data that need to be addressed before proceeding:</p>
 <ol style="list-style-type: decimal">
 <li><p>Depreciation &amp; amortisation / total assets, non-current liabilities / total assets and revenue / total assets are all returning negative values. This indicates data quality issues. Neither the numerators or denominator of these ratios can take a negative value. We will attempt to resolve this by winsorising the data.</p></li>
-<li><p>Intangibles / total assets appears to be a low variance predictor. This attribute is returning mostly nil values. The minimum and first quartile value are both nil. A quick review of a couple of Tickers known to have intangibles (A - Agilent, AAPL - Apple, NFLX - Netflix) shows that this data attribute is missing. We will ignore this attribute and take Other assets / total assets as a proxy for the quantum of intangibles. This is appropriate since Intangible assets is a component of Other assets.</p></li>
+<li><p>Intangibles / total assets appears to be a low variance predictor. This attribute is returning mostly nil values. The minimum and first quartile value are both nil. A quick review of a couple of Tickers known to have intangibles (A - Agilent, AAPL - Apple, NFLX - Netflix) shows that this data attribute is missing. We will ignore this attribute and take other assets / total assets as a proxy for the quantum of intangibles. This is appropriate since Intangible assets is a component of Other assets.</p></li>
 <li><p>A number of attributes are highly skewed. The k-means clustering algorithm does not perform well on skewed data since cluster centres are derived by taking the average of all data points. Outliers present in skewed data sets unduly influence the cluster centres resulting in less then representative clusters. See <a href="https://www.quora.com/How-are-k-means-clustering-algorithms-sensitive-to-outliers">here</a> for a nice explanation of this effect. Should the winsorisation of attributes not resolve the skewness we may need to performing a Box-Cox or log transformation.</p></li>
-<li><p>The attributes we have used are on different scales. Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items. Revenue volatility is on a seperate scale altogether. The use of attributes with differing scales is not appropriate for ingestion to the k-means clustering algorithm. This is because one attribute can dominate others should it have greater dispersion. The answers to <a href="https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering">this</a> Stack Overflow question go into further detail around this effect. In light of this we will centre and scale the data.</p></li>
+<li><p>The attributes we have used are on different scales. Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items. Revenue volatility is on a separate scale altogether. The use of attributes with differing scales is not appropriate for ingestion to the k-means clustering algorithm. This is because one attribute can dominate others should it have greater dispersion. The answers and visualisation in <a href="https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering">this</a> Stack Overflow question intuitively explain this effect. In light of this we will centre and scale the data.</p></li>
 </ol>
 <pre class="r"><code># View summary statistics
 simfin.m %&gt;% select(td.ta:rev.vol, -int.ta) %&gt;% 
@@ -222,11 +222,11 @@ simfin.m %&gt;%
         axis.title.y = element_text(color = &quot;darkslategrey&quot;),
         plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_1_5-1.png" width="792" /></p>
-<p>This provides us with a dataset that is more appropriate for clustering. Some further observations:</p>
+<p>This provides us with a data set that is more appropriate for clustering. Some further observations:</p>
 <ol style="list-style-type: decimal">
 <li>Revenue volatility remains highly skewed. We will take the log transform of this attribute to resolve this.<br />
 </li>
-<li>The total debt over assets attribute (td.ta) has a bimodal distribution. This is a feature of the data in that a specific cohort of stocks will have no debt.<br />
+<li>The total debt over assets (“td.ta”) and non-current liabilities / total assets (“ncl.ta”) attributes both have a bi-modal distribution. This is a feature of the data in that a specific cohort of stocks will have no debt.<br />
 </li>
 <li>It’s also worth noting the co-efficient of variation is now meaningless since the mean is nil after centering the data.</li>
 </ol>
@@ -281,7 +281,7 @@ simfin.m %&gt;%
 <h3>Step 2 - Assign stocks to like groups based on financial characteristics via a clustering algorithm</h3>
 <p>Stocks are traditionally assigned to like groups via industry or sector membership. We are going to take a different approach and group stocks in an unsupervised manner. We will use a k-means clustering algorithm to cluster stocks based on financial characteristics.</p>
 <p>Why not just use industry membership? Industry membership can be subjective and may change over time with a lag. The use of financial ratios is quantitative and will be updated with current information.</p>
-<p>With that in mind, we need to assess the optimal number of clusters. The code below is taken from <a href="https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html">this</a> broom package vignette. This uses both the <code>broom</code> and <code>purrr</code> packages to iteratively perform k-means clustering with different values of k, the number of clusters.</p>
+<p>With that in mind, we need to assess the optimal number of clusters to use in the k-means algorithm. The code below is taken from <a href="https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html">this</a> broom package vignette. This uses both the <code>broom</code> and <code>purrr</code> packages to iteratively perform k-means clustering with different values of k, the number of clusters.</p>
 <p>The output of the code block below is a graph of the total within-cluster sum of squares versus a range of values for k. Within-cluster sum of squares is of interest since this is the metric the k-means algorithm seeks to minimise. Lower within-cluster sum of squares corresponds to lower with-in cluster variation. This means that the members of the cluster are more alike and the clusters are therefore more different.</p>
 <p>Note that we now select data at a specific date.</p>
 <pre class="r"><code># Create dataframe for clustering
@@ -309,6 +309,7 @@ assignments &lt;- kclusts %&gt;%
 ggplot(clusterings, aes(k, tot.withinss)) +
   geom_line() +
   ylab(&quot;Total within-cluster sum of squares&quot;) +
+  xlab(&quot;k&quot;) +
   labs(title = &quot;Financial attribute clustering analysis&quot;,
        caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com/)&quot;) +
   theme_grey() +
@@ -316,8 +317,8 @@ ggplot(clusterings, aes(k, tot.withinss)) +
         axis.title.y = element_text(color = &quot;darkslategrey&quot;),
         plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_2-1.png" width="672" /></p>
-<p>Normally k is selected at the point at which the above plot shows a sharp “elbow”. This is the point at which there is little improvement in the fit of the algorithm as k increases. As can be seen above, there is no sharp elbow to this graph. For conveniance sake more than anything else, we will choose 16 clusters for our analysis going forward.</p>
-<p>At this point we should note that our clustering technique can miss quiet a bit. If clusters are of unequal size, are of unequal density, or are not spherical, the k-means algorithm is not appropriate. Investigating these details is beyond the scope of what I am trying to achieve with this post. <a href="https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/">This article</a> provides a further detail on these topics.</p>
+<p>Normally k is selected at the point at which the above plot shows a sharp “elbow”. This is the point at which there is little improvement in the fit of the algorithm as k increases. As can be seen above, there is no sharp elbow to this graph. For convenience sake more than anything else, we will choose 16 clusters for our analysis going forward.</p>
+<p>At this point we should note that our clustering technique can miss quiet a bit. If clusters are of unequal size, are of unequal density, or are not spherical, the k-means algorithm is not appropriate. Investigating these details is beyond the scope of what I am trying to achieve with this post. <a href="https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/">This article</a> provides further detail on these topics.</p>
 <p>Lets now visualise our clusters. This code plots the cluster characteristics in a radar plot.</p>
 <pre class="r"><code>set.seed(123)
 kclust16 &lt;- kmeans(simfin.cl, 16, nstart = 25)
@@ -348,9 +349,12 @@ kclust16.nm %&gt;% select(-size, -withinss, -cluster, -first, -second, -seventh,
   #ggtitle(&quot;Fundamental cluster characteristics&quot;)
   theme_grey() +
   theme(strip.text = element_text(size = 7),
-        legend.position = &quot;none&quot;)</code></pre>
+        legend.position = &quot;none&quot;,
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_3-1.png" width="792" style="display: block; margin: auto auto auto 0;" /></p>
-<p>Note that the facet titles are a concatenation of the two highest and two lowest cluster centres. Since our data has been scaled to a unit variance these are comparable metrics.</p>
+<p>Note that the facet titles are a concatenation of the two highest and two lowest cluster centres. Since our data has been scaled to a unit variance, these are comparable metrics.</p>
 </div>
 <div id="step-3---assign-cluster-label-to-stocks-and-fill-forward-cluster-category-to-next-assessment-date" class="section level3">
 <h3>Step 3 - Assign cluster label to stocks and fill forward cluster category to next assessment date</h3>
@@ -397,8 +401,8 @@ for (i in c(&#39;2014-01-31&#39;,&#39;2014-07-31&#39;, &#39;2015-01-31&#39;, &#3
 
 # Convert SimFin.ID back to numeric
 kclust16.tot &lt;- kclust16.tot %&gt;% mutate(SimFin.ID = as.numeric(SimFin.ID))</code></pre>
-<p>TODO - insert data table to inspect output</p>
-<p>TODO - build this as a function</p>
+<p><em>TO DO: insert data table to inspect output</em></p>
+<p><em>TO DO: build this as a function</em></p>
 <p>The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.</p>
 <pre class="r"><code># Join tables
 simfin.m &lt;- simfin.m %&gt;% left_join(kclust16.tot, by = c(&quot;me.date&quot;, &quot;Ticker&quot;, &quot;SimFin.ID&quot;)) %&gt;% 
@@ -406,7 +410,7 @@ simfin.m &lt;- simfin.m %&gt;% left_join(kclust16.tot, by = c(&quot;me.date&quot
 <div id="step-4---for-each-date-and-cluster-fit-the-pb-roe-model-and-rank-stocks-based-on-the-resultant-valuation" class="section level4">
 <h4>Step 4 - For each date and cluster, fit the PB-ROE model and rank stocks based on the resultant valuation</h4>
 <p>I first learned about the Price/Book - Return on Equity (“PB-ROE”) model reading <a href="http://alephblog.com/2012/02/25/thinking-about-the-insurance-industry/">this</a> blog. The intuition of fitting a regression line to determine the relationship between return on equity and valuation, and then using deviations from this relationship (the residual from this regression) to determine relative valuation of stocks seemed simple and appealing. After all if some stocks in the same industry (or having the same financial characteristics in our example) have a higher ROE, they should be more valuable.</p>
-<p>The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster and date, and then joins this data back to our main dataframe <code>simfin.m</code>. This block of code relies heavily on the nesting functionailty in the <code>purrr</code> package.</p>
+<p>The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster and date, and then joins this data back to our main dataframe <code>simfin.m</code>. This block of code relies heavily on the nesting functionality in the <code>purrr</code> package.</p>
 <pre class="r"><code>simfin.pbroe1 &lt;- simfin.m %&gt;% 
   # Price to book rato and ROE
     mutate(ROE = Winsorize(ann.NetProfit / TotalEquity, probs = c(0.02, 0.98), na.rm = TRUE),
@@ -442,13 +446,13 @@ simfin.pbroe &lt;- simfin.pbroe1 %&gt;%
 # Join to monthly data frame
 simfin.m &lt;- simfin.m %&gt;% left_join(simfin.pbroe) %&gt;% 
   
-  # Add percent rank of residual  TODO - add +ve or -ve residual flag to indicate if
+  # Add percent rank of residual  TO DO: add +ve or -ve residual flag to indicate if
   # over or under valued and group over this in addition to below.
   group_by(me.date, clust.name) %&gt;% 
   mutate(PBROE.rank = percent_rank(desc(resid))) %&gt;% 
   ungroup() %&gt;% 
   rename(PBROE.resid = resid)</code></pre>
-<p>The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank. PBROE.resid is the difference between the actual log price book ratio and that predicted by the return on equity. If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model. Likewise a negative residual indicates undervaluation based on our model. PBROE.rank is a descending percent ranking of the PBROE.resid. A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.</p>
+<p>The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank. PBROE.resid is the difference between the actual log price book ratio and that inferred by the return on equity. If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model. Likewise a negative residual indicates undervaluation based on our model. PBROE.rank is a descending percent ranking of the PBROE.resid. A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.</p>
 <pre class="r"><code># Plot average r squared of regression model
 # It would be interesting to compare the results of this to applying the PB-ROE model to industries
 r.sq &lt;- simfin.pbroe1 %&gt;% 
@@ -474,16 +478,25 @@ simfin.m %&gt;%
             check_overlap = TRUE,
             size = 3,
             nudge_x = 0.4) +
-  geom_smooth(method = lm)</code></pre>
+  geom_smooth(method = lm) +
+  labs(title = &quot;PB-ROE model by fundamental cluster&quot;,
+     subtitle = &quot;As at December 2017&quot;,
+     caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com)&quot;) +
+  theme_grey() +
+  theme(strip.text = element_text(size = 7),
+        legend.position = &quot;none&quot;,
+        axis.title.x = element_blank(),
+        axis.title.y = element_text(color = &quot;darkslategrey&quot;),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/pb_roe_check-1.png" width="792" /></p>
-<pre class="r"><code>#https://stackoverflow.com/questions/26558631/predict-lm-in-a-loop-warning-prediction-from-a-rank-deficient-fit-may-be-mis</code></pre>
-<p>TODO: <em>Determine Why cluster <code>oa.ta_nca.ta_td.ta_da.ta</code>as at 31 December 2017 returning only one stock despite the cluster size being 81?</em></p>
+<p>We expect to see an upward sloping line as the P (price or market capitalisation) in the logPB increases with greater ROE (return on equity). This is primarily what has been observed. A number of clusters do have an inverted relationship and a very low number of individual observations. This is suspected to be a result of anomalies in the data but that is up for further investigation.</p>
+<p><em>TO DO: Determine Why cluster <code>oa.ta_nca.ta_td.ta_da.ta</code>as at 31 December 2017 returning only one stock despite the cluster size being 81?</em></p>
 </div>
 <div id="step-5---apply-the-merton-distance-to-default-model-and-rank-stocks-by-probability-of-default" class="section level4">
 <h4>Step 5 - Apply the Merton distance to default model and rank stocks by probability of default</h4>
-<p>TODO: <em>Insert introductory explanation of Merton model here. Why does full version need iteration? Show summarised version. What does the DD actually represent?</em></p>
-<p>The Merton distance to default model has been modified in this paper: <a href="https://econpapers.repec.org/paper/utsrpaper/112.htm">Merton for dummies</a></p>
-<p>Fistly, we need to prepare data for Merton model. The three inputs are Market cap, debt and equity return volatilty. We do not have equity volatility so this is calculated below.</p>
+<p><em>TO DO: Insert introductory explanation of Merton model here. Why does full version need iteration? Show summarised version. What does the distance to default actually represent?</em></p>
+<p>The Merton distance to default model has been modified in the <a href="https://econpapers.repec.org/paper/utsrpaper/112.htm">Merton for dummies</a> paper. It is this simplified version that we will implement.</p>
+<p>As always, firstly we need to prepare data for ingestion to the model. The three inputs are market capitalisation, debt and equity return volatility. Previous analysis has used both market cap and total debt, we have that data available. We have not calculated equity volatility thus far. This is calculated below.</p>
 <pre class="r"><code># Price - filter attributes and dates required
 simfin.d &lt;- simfin %&gt;% filter(Indicator.Name == &quot;Share Price&quot; &amp; publish.date &gt; &quot;2011-12-31&quot;) %&gt;% 
 mutate(me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;% 
@@ -504,21 +517,22 @@ mutate(me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;
 
 # Join to monthly data frame
 simfin.m &lt;- simfin.m %&gt;% left_join(simfin.d)</code></pre>
-<p>We now create the distance to default and a descending percent ranking thereof (MertonDD.rank).</p>
-<pre class="r"><code># Create Merton DD.  TODO - resolve infinity
+<p>We now create the distance to default measure and assign a descending percent ranking thereof (MertonDD.rank).</p>
+<pre class="r"><code># Create Merton DD
 simfin.m &lt;- simfin.m %&gt;% 
   mutate(MertonDD = if_else(TotalDebt == 0 | vol_3m == 0, 25,
                        log(1/(TotalDebt / (TotalDebt + mkt.cap))) / 
                        (vol_3m * (1-(TotalDebt/(TotalDebt + mkt.cap))))),
          MertonDD.rank = percent_rank(desc(MertonDD)))</code></pre>
-<p>TODO: <em>Visualise the results of the DD</em></p>
+<p><em>TO DO: resolve infinity</em></p>
 <p>A MertonDD.rank value of 1 is the highest value of distance to default, these are stocks that are unlikely to default and hence have low credit risk. Likewise lower values of MertonDD.rank represent stocks with smaller distance to default and higher credit risk.</p>
-<p>In the introductions we stated that stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss. We therefore need to combine our ranking and come up with a single measure with which to apply and ECL and risk stage. The code block below takes the average of our two percent rank measures (PBROE.rank and MertonDD.rank), ranks the result and assigns an ECL on the following scale.</p>
+<p>Let’s have a look at the highest and lowest ranked stocks for December 2017.</p>
+<p><em>TO DO: Visualise the results of the MertonDD attibute using DT</em></p>
 </div>
 <div id="step-6---combine-the-rankings-of-the-valuation-and-default-models-and-assign-an-ecl-and-risk-stage" class="section level4">
 <h4>Step 6 - Combine the rankings of the valuation and default models, and assign an ECL and risk stage</h4>
-<p>TODO - ALL OF STEP 6</p>
-<pre class="r"><code># Create Merton DD.  TODO - resolve infinity
+<p>In the introduction we stated that stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss. We therefore need to combine our ranking and come up with a single measure with which to apply an ECL and risk stage. The code block below takes the average of our two percent rank measures (PBROE.rank and MertonDD.rank), ranks the result and assigns an ECL on the scale implicit in the <code>case_when</code> statement below.</p>
+<pre class="r"><code># Create Merton DD.  TO DO: resolve infinity
 simfin.m &lt;- simfin.m %&gt;% 
   group_by(me.date) %&gt;% 
   mutate(avg.rank = (PBROE.rank + MertonDD.rank) /2,
@@ -533,6 +547,13 @@ simfin.m &lt;- simfin.m %&gt;%
                            TRUE ~ comb.rank * 0.025 * TotalDebt
                            ),
          ECL = cover * TotalDebt)</code></pre>
+<p><em>TO DO: Visualise the results of the cover and ECL attibutes using DT</em></p>
+</div>
+<div id="conclusion" class="section level4">
+<h4>Conclusion</h4>
+<p>The analysis above has created an ECL and risk stage for our imaginary banks loan portfolio. This data will be used to prepare the tables highlighted in the first post of this series. That will be done using data analysis tools in both Python and R. The aim is to be proficient in both of these languages.</p>
+<p>We have gone down a rabbit hole in deriving these attributes and that is intentional<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>. The whole idea here is to practice modelling techniques with a real world dirty data set. Dealing with outliers, missing data and inconsistent data is large part data science / data analysis. No point shying away from it</p>
+<p>With that we’ll leave it till next time.</p>
 </div>
 </div>
 <div id="references" class="section level3">
@@ -540,12 +561,13 @@ simfin.m &lt;- simfin.m %&gt;%
 <p><a href="https://econpapers.repec.org/paper/utsrpaper/112.htm">Merton for dummies</a><br />
 <a href="https://seekingalpha.com/article/40398-pb-roe-analysis-a-very-useful-tool">PB-ROE link1</a><br />
 <a href="https://www.seactuary.com/files/handouts/wall_street_view_of_insurers.pdf">PB-ROE link2</a><br />
-<a href="https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/">descriptr</a>
+<a href="https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/">descriptr</a><br />
 <a href="http://www.bradfordlynch.com/blog/2017/05/20/ProbabilityOfDefault.html">Merton</a></p>
 </div>
 <div class="footnotes">
 <hr />
 <ol>
-<li id="fn1"><p>I am yet to find a way to correct the formatting of tables produced using the kableExtra package. They should look something like <a href="https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html#bootstrap_theme">this</a>. Instead, I end up with something similar to that demonstrated <a href="https://brentmorrison.netlify.com/post/test-post/">here</a>. Stackoverflow tells me there is a whole lot of messing with CSS code required to get that sorted out. Not having the time for that, the tables produced by the <a href="https://rstudio.github.io/DT/">DT</a> package will do for now.<a href="#fnref1" class="footnote-back">↩</a></p></li>
+<li id="fn1"><p>I am yet to find a way to correct the formatting of tables produced using the kableExtra package. They should look something like <a href="https://cran.r-project.org/web/packages/kableExtra/vignettes/awesome_table_in_html.html#bootstrap_theme">this</a>. Instead, I end up with something similar to that demonstrated <a href="https://brentmorrison.netlify.com/post/test-post/">here</a>. Stack overflow tells me there is a whole lot of messing with CSS code required to get that sorted out. Not having the time for that, the tables produced by the <a href="https://rstudio.github.io/DT/">DT</a> package will do for now.<a href="#fnref1" class="footnote-back">↩</a></p></li>
+<li id="fn2"><p>We could have easily assigned an ECL by multiplying the loan balance by a random number between say 0.5 and 0.05.<a href="#fnref2" class="footnote-back">↩</a></p></li>
 </ol>
 </div>
