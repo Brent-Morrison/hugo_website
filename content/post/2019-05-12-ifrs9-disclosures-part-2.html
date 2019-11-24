@@ -343,10 +343,9 @@ kclust16.nm %&gt;% select(-size, -withinss, -cluster, -first, -second, -seventh,
           size = 1, interactive = FALSE, use.label = TRUE, scales = &quot;fixed&quot;) +
   facet_wrap(~clust.name, ncol = 5) + 
   scale_y_discrete(breaks = NULL) +
-  labs(title = &quot;Fundamental cluster characteristics&quot;,
+  labs(title = &quot;Fundamental cluster characteristics (as at January 2014)&quot;,
        subtitle = &quot;Facet title represents two highest and lowest cluster centres&quot;,
        caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com)&quot;) +
-  #ggtitle(&quot;Fundamental cluster characteristics&quot;)
   theme_grey() +
   theme(strip.text = element_text(size = 7),
         legend.position = &quot;none&quot;,
@@ -372,7 +371,7 @@ for (i in c(&#39;2014-01-31&#39;,&#39;2014-07-31&#39;, &#39;2015-01-31&#39;, &#3
     mutate_if(is.numeric, list(~scale(.)))
   
   # Apply k-means
-  x.kclust16 &lt;- kmeans(select(x.simfin.cl, -Ticker, -me.date, -SimFin.ID), 16, nstart = 25)
+  x.kclust16 &lt;- kmeans(select(x.simfin.cl, -Ticker, -me.date, -SimFin.ID), 16, nstart = 100)
   
   # Extract cluster centres via Broom::tidy
   x.kclust16.td &lt;- tidy(x.kclust16, col.names = c(&quot;td.ta&quot;, &quot;ncl.ta&quot;, &quot;nca.ta&quot;, &quot;oa.ta&quot;, 
@@ -401,16 +400,40 @@ for (i in c(&#39;2014-01-31&#39;,&#39;2014-07-31&#39;, &#39;2015-01-31&#39;, &#3
 
 # Convert SimFin.ID back to numeric
 kclust16.tot &lt;- kclust16.tot %&gt;% mutate(SimFin.ID = as.numeric(SimFin.ID))</code></pre>
-<p><em>TO DO: insert data table to inspect output</em></p>
-<p><em>TO DO: build this as a function</em></p>
-<p>The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.</p>
+<p>The most efficient implementation of the code block above would be to build it as a function. For now, this will be left for another day.</p>
+<p>Lets try to understand how our clustering algorithm is working. Remember we are re-assessing cluster membership every six months. It is therefore likely that clusters will change over time as the financial ratios representing the highest and lowest cluster centres also change over time. The plot below lists all clusters, displaying the months in which they are present and the number of stocks in each cluster at each assessment date. There are 16 points in each column representing the number of clusters, k. The clusters are ordered by count of occurance.</p>
+<pre class="r"><code>kclust16.tot %&gt;% 
+  group_by(me.date, clust.name) %&gt;% 
+  summarise(size = max(size)) %&gt;% 
+  group_by(clust.name) %&gt;% 
+  mutate(clust.count = n_distinct(me.date)) %&gt;% 
+  ungroup %&gt;% 
+  ggplot(aes(x = me.date, y = reorder(clust.name, clust.count), colour = -size, size = size)) +
+  geom_point(show.legend = FALSE) +
+  theme_grey() +
+  scale_size(range = c(1, 4)) +
+  labs(title = &quot;Time series of individual cluster occurance&quot;,
+     subtitle = &quot;Size and shading represents count of cluster members&quot;,
+     caption = &quot;Source: SimFin bulk data download - October 2018 (https://simfin.com)&quot;) +
+  theme(axis.title.x = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(size = 7),
+        plot.caption = element_text(size = 9, color = &quot;grey55&quot;)
+  )</code></pre>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/cluster_lplot-1.png" width="672" /></p>
+<p>The plot above shows that cluster membership is driven by different attributes at different points in time. There are a total of <code>83</code> individual clusters over the ten assessment dates. Had there been no variation in cluster formation at each assessment date the plot above would list 16 clusters only. The largest number of stocks in any one cluster is <code>114</code>, the smallest is <code>13</code>.</p>
+<p>Moving on, we need to join are cluster assessment back to the oringinal monthly dataset. The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.</p>
 <pre class="r"><code># Join tables
 simfin.m &lt;- simfin.m %&gt;% left_join(kclust16.tot, by = c(&quot;me.date&quot;, &quot;Ticker&quot;, &quot;SimFin.ID&quot;)) %&gt;% 
-  group_by(Ticker) %&gt;% fill(td.ta.data:withinss) %&gt;% ungroup()</code></pre>
+  mutate(year_half = semester(me.date)) %&gt;% 
+  group_by(Ticker, year_half) %&gt;% fill(td.ta.data:withinss) %&gt;% ungroup()</code></pre>
+<div id="section" class="section level5">
+<h5></h5>
+</div>
 <div id="step-4---for-each-date-and-cluster-fit-the-pb-roe-model-and-rank-stocks-based-on-the-resultant-valuation" class="section level4">
 <h4>Step 4 - For each date and cluster, fit the PB-ROE model and rank stocks based on the resultant valuation</h4>
 <p>I first learned about the Price/Book - Return on Equity (“PB-ROE”) model reading <a href="http://alephblog.com/2012/02/25/thinking-about-the-insurance-industry/">this</a> blog. The intuition of fitting a regression line to determine the relationship between return on equity and valuation, and then using deviations from this relationship (the residual from this regression) to determine relative valuation of stocks seemed simple and appealing. After all if some stocks in the same industry (or having the same financial characteristics in our example) have a higher ROE, they should be more valuable.</p>
-<p>The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster and date, and then joins this data back to our main dataframe <code>simfin.m</code>. This block of code relies heavily on the nesting functionality in the <code>purrr</code> package.</p>
+<p>The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster at each date, and then joins this data back to our main dataframe <code>simfin.m</code>. This block of code relies heavily on the nesting functionality in the <code>purrr</code> package.</p>
 <pre class="r"><code>simfin.pbroe1 &lt;- simfin.m %&gt;% 
   # Price to book rato and ROE
     mutate(ROE = Winsorize(ann.NetProfit / TotalEquity, probs = c(0.02, 0.98), na.rm = TRUE),
@@ -454,7 +477,6 @@ simfin.m &lt;- simfin.m %&gt;% left_join(simfin.pbroe) %&gt;%
   rename(PBROE.resid = resid)</code></pre>
 <p>The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank. PBROE.resid is the difference between the actual log price book ratio and that inferred by the return on equity. If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model. Likewise a negative residual indicates undervaluation based on our model. PBROE.rank is a descending percent ranking of the PBROE.resid. A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.</p>
 <pre class="r"><code># Plot average r squared of regression model
-# It would be interesting to compare the results of this to applying the PB-ROE model to industries
 r.sq &lt;- simfin.pbroe1 %&gt;% 
   unnest(glanced) %&gt;% 
   select(me.date, clust.name, r.squared) %&gt;% 
@@ -465,13 +487,14 @@ r.sq &lt;- simfin.pbroe1 %&gt;%
 labs &lt;- simfin.m %&gt;% filter(!is.na(clust.name), me.date == &quot;2017-12-31&quot;) %&gt;% 
   group_by(clust.name) %&gt;%
   filter(PBROE.resid == max(PBROE.resid) | PBROE.resid == min(PBROE.resid)) %&gt;% 
-  select(Ticker, me.date, clust.name, logPB, ROE, PBROE.resid)
+  select(Ticker, me.date, clust.name, logPB, ROE, PBROE.resid) %&gt;% 
+  ungroup()
 
 simfin.m %&gt;% 
   filter(!is.na(clust.name),
          me.date == &quot;2017-12-31&quot;) %&gt;% 
   ggplot(aes(x = logPB, y = ROE)) + 
-  facet_wrap(~clust.name, ncol = 6) + 
+  facet_wrap(~clust.name, ncol = 5) + 
   geom_point() +
   geom_text(data = labs,
             label = labs$Ticker,
@@ -489,8 +512,7 @@ simfin.m %&gt;%
         axis.title.y = element_text(color = &quot;darkslategrey&quot;),
         plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/pb_roe_check-1.png" width="792" /></p>
-<p>We expect to see an upward sloping line as the P (price or market capitalisation) in the logPB increases with greater ROE (return on equity). This is primarily what has been observed. A number of clusters do have an inverted relationship and a very low number of individual observations. This is suspected to be a result of anomalies in the data but that is up for further investigation.</p>
-<p><em>TO DO: Determine Why cluster <code>oa.ta_nca.ta_td.ta_da.ta</code>as at 31 December 2017 returning only one stock despite the cluster size being 81?</em></p>
+<p>We expect to see an upward sloping line as the P (price or market capitalisation) in the logPB increases with greater ROE (return on equity). This is primarily what has been observed. A couple of clusters do have an inverted relationship and a very low number of individual observations.</p>
 </div>
 <div id="step-5---apply-the-merton-distance-to-default-model-and-rank-stocks-by-probability-of-default" class="section level4">
 <h4>Step 5 - Apply the Merton distance to default model and rank stocks by probability of default</h4>
@@ -524,7 +546,6 @@ simfin.m &lt;- simfin.m %&gt;%
                        log(1/(TotalDebt / (TotalDebt + mkt.cap))) / 
                        (vol_3m * (1-(TotalDebt/(TotalDebt + mkt.cap))))),
          MertonDD.rank = percent_rank(desc(MertonDD)))</code></pre>
-<p><em>TO DO: resolve infinity</em></p>
 <p>A MertonDD.rank value of 1 is the highest value of distance to default, these are stocks that are unlikely to default and hence have low credit risk. Likewise lower values of MertonDD.rank represent stocks with smaller distance to default and higher credit risk.</p>
 <p>Let’s have a look at the highest and lowest ranked stocks for December 2017.</p>
 <p><em>TO DO: Visualise the results of the MertonDD attibute using DT</em></p>
@@ -532,8 +553,7 @@ simfin.m &lt;- simfin.m %&gt;%
 <div id="step-6---combine-the-rankings-of-the-valuation-and-default-models-and-assign-an-ecl-and-risk-stage" class="section level4">
 <h4>Step 6 - Combine the rankings of the valuation and default models, and assign an ECL and risk stage</h4>
 <p>In the introduction we stated that stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss. We therefore need to combine our ranking and come up with a single measure with which to apply an ECL and risk stage. The code block below takes the average of our two percent rank measures (PBROE.rank and MertonDD.rank), ranks the result and assigns an ECL on the scale implicit in the <code>case_when</code> statement below.</p>
-<pre class="r"><code># Create Merton DD.  TO DO: resolve infinity
-simfin.m &lt;- simfin.m %&gt;% 
+<pre class="r"><code>simfin.m &lt;- simfin.m %&gt;% 
   group_by(me.date) %&gt;% 
   mutate(avg.rank = (PBROE.rank + MertonDD.rank) /2,
          comb.rank = percent_rank(avg.rank)) %&gt;% 
@@ -552,8 +572,7 @@ simfin.m &lt;- simfin.m %&gt;%
 <div id="conclusion" class="section level4">
 <h4>Conclusion</h4>
 <p>The analysis above has created an ECL and risk stage for our imaginary banks loan portfolio. This data will be used to prepare the tables highlighted in the first post of this series. That will be done using data analysis tools in both Python and R. The aim is to be proficient in both of these languages.</p>
-<p>We have gone down a rabbit hole in deriving these attributes and that is intentional<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>. The whole idea here is to practice modelling techniques with a real world dirty data set. Dealing with outliers, missing data and inconsistent data is large part data science / data analysis. No point shying away from it</p>
-<p>With that we’ll leave it till next time.</p>
+<p>We have gone down a rabbit hole in deriving these attributes and that is intentional<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>. The whole idea here is to practice modelling techniques with a real world dirty data set. Dealing with outliers, missing data and inconsistent data is large part data science / data analysis. There is no point shying away from that reality.</p>
 </div>
 </div>
 <div id="references" class="section level3">

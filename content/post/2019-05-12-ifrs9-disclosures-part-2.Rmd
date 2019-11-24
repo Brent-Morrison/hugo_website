@@ -375,10 +375,9 @@ kclust16.nm %>% select(-size, -withinss, -cluster, -first, -second, -seventh, -e
           size = 1, interactive = FALSE, use.label = TRUE, scales = "fixed") +
   facet_wrap(~clust.name, ncol = 5) + 
   scale_y_discrete(breaks = NULL) +
-  labs(title = "Fundamental cluster characteristics",
+  labs(title = "Fundamental cluster characteristics (as at January 2014)",
        subtitle = "Facet title represents two highest and lowest cluster centres",
        caption = "Source: SimFin bulk data download - October 2018 (https://simfin.com)") +
-  #ggtitle("Fundamental cluster characteristics")
   theme_grey() +
   theme(strip.text = element_text(size = 7),
         legend.position = "none",
@@ -407,7 +406,7 @@ for (i in c('2014-01-31','2014-07-31', '2015-01-31', '2015-07-31', '2016-01-31',
     mutate_if(is.numeric, list(~scale(.)))
   
   # Apply k-means
-  x.kclust16 <- kmeans(select(x.simfin.cl, -Ticker, -me.date, -SimFin.ID), 16, nstart = 25)
+  x.kclust16 <- kmeans(select(x.simfin.cl, -Ticker, -me.date, -SimFin.ID), 16, nstart = 100)
   
   # Extract cluster centres via Broom::tidy
   x.kclust16.td <- tidy(x.kclust16, col.names = c("td.ta", "ncl.ta", "nca.ta", "oa.ta", 
@@ -438,25 +437,50 @@ for (i in c('2014-01-31','2014-07-31', '2015-01-31', '2015-07-31', '2016-01-31',
 kclust16.tot <- kclust16.tot %>% mutate(SimFin.ID = as.numeric(SimFin.ID))
 ```
 
-*TO DO: insert data table to inspect output*   
+The most efficient implementation of the code block above would be to build it as a function.  For now, this will be left for another day.
 
-*TO DO: build this as a function*  
+Lets try to understand how our clustering algorithm is working. Remember we are re-assessing cluster membership every six months.  It is therefore likely that clusters will change over time as the financial ratios representing the highest and lowest cluster centres also change over time.  The plot below lists all clusters, displaying the months in which they are present and the number of stocks in each cluster at each assessment date.  There are 16 points in each column representing the number of clusters, k. The clusters are ordered by count of occurance. 
 
-The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.
+```{r cluster_lplot, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+kclust16.tot %>% 
+  group_by(me.date, clust.name) %>% 
+  summarise(size = max(size)) %>% 
+  group_by(clust.name) %>% 
+  mutate(clust.count = n_distinct(me.date)) %>% 
+  ungroup %>% 
+  ggplot(aes(x = me.date, y = reorder(clust.name, clust.count), colour = -size, size = size)) +
+  geom_point(show.legend = FALSE) +
+  theme_grey() +
+  scale_size(range = c(1, 4)) +
+  labs(title = "Time series of individual cluster occurance",
+     subtitle = "Size and shading represents count of cluster members",
+     caption = "Source: SimFin bulk data download - October 2018 (https://simfin.com)") +
+  theme(axis.title.x = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.text.y = element_text(size = 7),
+        plot.caption = element_text(size = 9, color = "grey55")
+  )
+```
+
+The plot above shows that cluster membership is driven by different attributes at different points in time.  There are a total of `` `r n_distinct(kclust16.tot$clust.name)` `` individual clusters over the ten assessment dates.  Had there been no variation in cluster formation at each assessment date the plot above would list 16 clusters only.  The largest number of stocks in any one cluster is `` `r max(kclust16.tot$size)` ``, the smallest is `` `r min(kclust16.tot$size)` ``.  
+
+Moving on, we need to join are cluster assessment back to the oringinal monthly dataset.  The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.
+
 ```{r join_clust, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Join tables
 simfin.m <- simfin.m %>% left_join(kclust16.tot, by = c("me.date", "Ticker", "SimFin.ID")) %>% 
-  group_by(Ticker) %>% fill(td.ta.data:withinss) %>% ungroup()
+  mutate(year_half = semester(me.date)) %>% 
+  group_by(Ticker, year_half) %>% fill(td.ta.data:withinss) %>% ungroup()
 
 ```
   
-
+#####
   
 #### Step 4 - For each date and cluster, fit the PB-ROE model and rank stocks based on the resultant valuation
 
 I first learned about the Price/Book - Return on Equity ("PB-ROE") model reading [this](http://alephblog.com/2012/02/25/thinking-about-the-insurance-industry/) blog.  The intuition of fitting a regression line to determine the relationship between return on equity and valuation, and then using deviations from this relationship (the residual from this regression) to determine relative valuation of stocks seemed simple and appealing.  After all if some stocks in the same industry (or having the same financial characteristics in our example) have a higher ROE, they should be more valuable.
 
-The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster and date, and then joins this data back to our main dataframe `simfin.m`.  This block of code relies heavily on the nesting functionality in the `purrr` package.
+The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster at each date, and then joins this data back to our main dataframe `simfin.m`.  This block of code relies heavily on the nesting functionality in the `purrr` package.
 
 
 ```{r pb_roe, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
@@ -507,7 +531,6 @@ The newly added attributes to our data frame are labelled PBROE.resid and PBROE.
 
 ```{r pb_roe_check, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25}  
 # Plot average r squared of regression model
-# It would be interesting to compare the results of this to applying the PB-ROE model to industries
 r.sq <- simfin.pbroe1 %>% 
   unnest(glanced) %>% 
   select(me.date, clust.name, r.squared) %>% 
@@ -518,13 +541,14 @@ r.sq <- simfin.pbroe1 %>%
 labs <- simfin.m %>% filter(!is.na(clust.name), me.date == "2017-12-31") %>% 
   group_by(clust.name) %>%
   filter(PBROE.resid == max(PBROE.resid) | PBROE.resid == min(PBROE.resid)) %>% 
-  select(Ticker, me.date, clust.name, logPB, ROE, PBROE.resid)
+  select(Ticker, me.date, clust.name, logPB, ROE, PBROE.resid) %>% 
+  ungroup()
 
 simfin.m %>% 
   filter(!is.na(clust.name),
          me.date == "2017-12-31") %>% 
   ggplot(aes(x = logPB, y = ROE)) + 
-  facet_wrap(~clust.name, ncol = 6) + 
+  facet_wrap(~clust.name, ncol = 5) + 
   geom_point() +
   geom_text(data = labs,
             label = labs$Ticker,
@@ -544,9 +568,7 @@ simfin.m %>%
 
 ```
 
-We expect to see an upward sloping line as the P (price or market capitalisation) in the logPB increases with greater ROE (return on equity).  This is primarily what has been observed.  A number of clusters do have an inverted relationship and a very low number of individual observations.  This is suspected to be a result of anomalies in the data but that is up for further investigation.  
-  
-*TO DO: Determine Why cluster `oa.ta_nca.ta_td.ta_da.ta`as at 31 December 2017 returning only one stock despite the cluster size being 81?*  
+We expect to see an upward sloping line as the P (price or market capitalisation) in the logPB increases with greater ROE (return on equity).  This is primarily what has been observed.  A couple of clusters do have an inverted relationship and a very low number of individual observations.    
 
  
 #### Step 5 - Apply the Merton distance to default model and rank stocks by probability of default
@@ -590,7 +612,6 @@ simfin.m <- simfin.m %>%
          MertonDD.rank = percent_rank(desc(MertonDD)))
 ```
 
-*TO DO: resolve infinity*
 
 A MertonDD.rank value of 1 is the highest value of distance to default, these are stocks that are unlikely to default and hence have low credit risk. Likewise lower values of MertonDD.rank represent stocks with smaller distance to default and higher credit risk.  
 
@@ -604,7 +625,6 @@ Let's have a look at the highest and lowest ranked stocks for December 2017.
 In the introduction we stated that stocks that have a low valuation and/or a high default risk will attract a higher estimated expected credit loss.  We therefore need to combine our ranking and come up with a single measure with which to apply an ECL and risk stage. The code block below takes the average of our two percent rank measures (PBROE.rank and MertonDD.rank), ranks the result and assigns an ECL on the scale implicit in the `case_when` statement below.  
 
 ```{r ecl, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
-# Create Merton DD.  TO DO: resolve infinity
 simfin.m <- simfin.m %>% 
   group_by(me.date) %>% 
   mutate(avg.rank = (PBROE.rank + MertonDD.rank) /2,
@@ -627,9 +647,7 @@ simfin.m <- simfin.m %>%
 
 The analysis above has created an ECL and risk stage for our imaginary banks loan portfolio.  This data will be used to prepare the tables highlighted in the first post of this series.  That will be done using data analysis tools in both Python and R.  The aim is to be proficient in both of these languages.  
 
-We have gone down a rabbit hole in deriving these attributes and that is intentional[^2].    The whole idea here is to practice modelling techniques with a real world dirty data set.  Dealing with outliers, missing data and inconsistent data is large part data science / data analysis. No point shying away from it 
-
-With that we'll leave it till next time.
+We have gone down a rabbit hole in deriving these attributes and that is intentional[^2].    The whole idea here is to practice modelling techniques with a real world dirty data set.  Dealing with outliers, missing data and inconsistent data is large part data science / data analysis. There is no point shying away from that reality. 
 
 [^2]: We could have easily assigned an ECL by multiplying the loan balance by a random number between say 0.5 and 0.05.
 
