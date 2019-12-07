@@ -176,8 +176,8 @@ simfin.m %&gt;%
 <p>Inspection of the histograms and summary statistic show a number of issues with this data that need to be addressed before proceeding:</p>
 <ol style="list-style-type: decimal">
 <li><p>Depreciation &amp; amortisation / total assets, non-current liabilities / total assets and revenue / total assets are all returning negative values. This indicates data quality issues. Neither the numerators or denominator of these ratios can take a negative value. We will attempt to resolve this by winsorising the data.</p></li>
-<li><p>Intangibles / total assets appears to be a low variance predictor. This attribute is returning mostly nil values. The minimum and first quartile value are both nil. A quick review of a couple of Tickers known to have intangibles (A - Agilent, AAPL - Apple, NFLX - Netflix) shows that this data attribute is missing. We will ignore this attribute and take other assets / total assets as a proxy for the quantum of intangibles. This is appropriate since Intangible assets is a component of Other assets.</p></li>
-<li><p>A number of attributes are highly skewed. The k-means clustering algorithm does not perform well on skewed data since cluster centres are derived by taking the average of all data points. Outliers present in skewed data sets unduly influence the cluster centres resulting in less then representative clusters. See <a href="https://www.quora.com/How-are-k-means-clustering-algorithms-sensitive-to-outliers">here</a> for a nice explanation of this effect. Should the winsorisation of attributes not resolve the skewness we may need to performing a Box-Cox or log transformation.</p></li>
+<li><p>Intangibles / total assets appears to be a low variance predictor. This attribute is returning mostly nil values. The minimum and first quartile value are both nil. A quick review of a couple of Tickers known to have intangibles (A - Agilent, AAPL - Apple, NFLX - Netflix) shows that this data attribute is missing. We will ignore this attribute and take Other assets / total assets as a proxy for the quantum of intangibles. This is appropriate since Intangible assets is a component of Other assets.</p></li>
+<li><p>A number of attributes are highly skewed. We intend to apply k-means clustering. The k-means clustering algorithm does not perform well on skewed data since cluster centres are derived by taking the average of all data points. Outliers present in skewed data sets unduly influence the cluster centres resulting in less then representative clusters. See <a href="https://www.quora.com/How-are-k-means-clustering-algorithms-sensitive-to-outliers">here</a> for a nice explanation of this effect. Should the winsorisation of attributes not resolve the skewness we may need to performing a Box-Cox or log transformation.</p></li>
 <li><p>The attributes we have used are on different scales. Although most attributes are expressed relative to total assets, profit and loss items are naturally on a different scale to balance sheet items. Revenue volatility is on a separate scale altogether. The use of attributes with differing scales is not appropriate for ingestion to the k-means clustering algorithm. This is because one attribute can dominate others should it have greater dispersion. The answers and visualisation in <a href="https://stats.stackexchange.com/questions/89809/is-it-important-to-scale-data-before-clustering">this</a> Stack Overflow question intuitively explain this effect. In light of this we will centre and scale the data.</p></li>
 </ol>
 <pre class="r"><code># View summary statistics
@@ -226,7 +226,7 @@ simfin.m %&gt;%
 <ol style="list-style-type: decimal">
 <li>Revenue volatility remains highly skewed. We will take the log transform of this attribute to resolve this.<br />
 </li>
-<li>The total debt over assets (“td.ta”) and non-current liabilities / total assets (“ncl.ta”) attributes both have a bi-modal distribution. This is a feature of the data in that a specific cohort of stocks will have no debt.<br />
+<li>The Total debt over assets (“td.ta”) and Non-current liabilities / total assets (“ncl.ta”) attributes both have a bi-modal distribution. This is a feature of the data in that a specific cohort of stocks will have no debt.<br />
 </li>
 <li>It’s also worth noting the co-efficient of variation is now meaningless since the mean is nil after centering the data.</li>
 </ol>
@@ -279,7 +279,7 @@ simfin.m %&gt;%
 </div>
 <div id="step-2---assign-stocks-to-like-groups-based-on-financial-characteristics-via-a-clustering-algorithm" class="section level3">
 <h3>Step 2 - Assign stocks to like groups based on financial characteristics via a clustering algorithm</h3>
-<p>Stocks are traditionally assigned to like groups via industry or sector membership. We are going to take a different approach and group stocks in an unsupervised manner. We will use a k-means clustering algorithm to cluster stocks based on financial characteristics.</p>
+<p>Stocks are traditionally assigned to similar groups via industry or sector membership. We are going to take a different approach and group stocks in an unsupervised manner. We will use a k-means clustering algorithm to cluster stocks based on financial characteristics.</p>
 <p>Why not just use industry membership? Industry membership can be subjective and may change over time with a lag. The use of financial ratios is quantitative and will be updated with current information.</p>
 <p>With that in mind, we need to assess the optimal number of clusters to use in the k-means algorithm. The code below is taken from <a href="https://cran.r-project.org/web/packages/broom/vignettes/kmeans.html">this</a> broom package vignette. This uses both the <code>broom</code> and <code>purrr</code> packages to iteratively perform k-means clustering with different values of k, the number of clusters.</p>
 <p>The output of the code block below is a graph of the total within-cluster sum of squares versus a range of values for k. Within-cluster sum of squares is of interest since this is the metric the k-means algorithm seeks to minimise. Lower within-cluster sum of squares corresponds to lower with-in cluster variation. This means that the members of the cluster are more alike and the clusters are therefore more different.</p>
@@ -318,7 +318,7 @@ ggplot(clusterings, aes(k, tot.withinss)) +
         plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/step_2-1.png" width="672" /></p>
 <p>Normally k is selected at the point at which the above plot shows a sharp “elbow”. This is the point at which there is little improvement in the fit of the algorithm as k increases. As can be seen above, there is no sharp elbow to this graph. For convenience sake more than anything else, we will choose 16 clusters for our analysis going forward.</p>
-<p>At this point we should note that our clustering technique can miss quiet a bit. If clusters are of unequal size, are of unequal density, or are not spherical, the k-means algorithm is not appropriate. Investigating these details is beyond the scope of what I am trying to achieve with this post. <a href="https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/">This article</a> provides further detail on these topics.</p>
+<p>At this point we should note that our clustering technique can miss quiet a bit. If clusters are of unequal size, are of unequal density, or are not spherical, the k-means algorithm is not appropriate. Investigating these details is beyond the scope of what I am trying to achieve with this post. This <a href="https://codeahoy.com/2017/02/19/cluster-analysis-using-k-means-explained/">article</a> provides further detail on these topics.</p>
 <p>Lets now visualise our clusters. This code plots the cluster characteristics in a radar plot.</p>
 <pre class="r"><code>set.seed(123)
 kclust16 &lt;- kmeans(simfin.cl, 16, nstart = 25)
@@ -400,7 +400,7 @@ for (i in c(&#39;2014-01-31&#39;,&#39;2014-07-31&#39;, &#39;2015-01-31&#39;, &#3
 
 # Convert SimFin.ID back to numeric
 kclust16.tot &lt;- kclust16.tot %&gt;% mutate(SimFin.ID = as.numeric(SimFin.ID))</code></pre>
-<p>The most efficient implementation of the code block above would be to build it as a function. For now, this will be left for another day.</p>
+<p>It’s worth noting that the most efficient implementation of the code block above is via a function. I’m going to leave that another day.</p>
 <p>Lets try to understand how our clustering algorithm is working. Remember we are re-assessing cluster membership every six months. It is therefore likely that clusters will change over time as the financial ratios representing the highest and lowest cluster centres also change over time. The plot below lists all clusters, displaying the months in which they are present and the number of stocks in each cluster at each assessment date. There are 16 points in each column representing the number of clusters, k. The clusters are ordered by count of occurance.</p>
 <pre class="r"><code>kclust16.tot %&gt;% 
   group_by(me.date, clust.name) %&gt;% 
@@ -420,9 +420,9 @@ kclust16.tot &lt;- kclust16.tot %&gt;% mutate(SimFin.ID = as.numeric(SimFin.ID))
         axis.text.y = element_text(size = 7),
         plot.caption = element_text(size = 9, color = &quot;grey55&quot;)
   )</code></pre>
-<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/cluster_lplot-1.png" width="672" /></p>
-<p>The plot above shows that cluster membership is driven by different attributes at different points in time. There are a total of <code>83</code> individual clusters over the ten assessment dates. Had there been no variation in cluster formation at each assessment date the plot above would list 16 clusters only. The largest number of stocks in any one cluster is <code>114</code>, the smallest is <code>13</code>.</p>
-<p>Moving on, we need to join are cluster assessment back to the oringinal monthly dataset. The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.</p>
+<p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/cluster_lplot-1.png" width="792" style="display: block; margin: auto auto auto 0;" /></p>
+<p>The plot above shows that cluster membership is driven by different attributes at different points in time. There are a total of <code>83</code> individual clusters over the ten assessment dates . Had there been no variation in cluster formation at each assessment date the plot above would list 16 clusters only. The largest number of stocks in any one cluster is <code>114</code>, the smallest is <code>13</code>.</p>
+<p>Moving on, we need to join are cluster assessment back to the original monthly dataset. The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.</p>
 <pre class="r"><code># Join tables
 simfin.m &lt;- simfin.m %&gt;% left_join(kclust16.tot, by = c(&quot;me.date&quot;, &quot;Ticker&quot;, &quot;SimFin.ID&quot;)) %&gt;% 
   mutate(year_half = semester(me.date)) %&gt;% 
@@ -432,7 +432,7 @@ simfin.m &lt;- simfin.m %&gt;% left_join(kclust16.tot, by = c(&quot;me.date&quot
 </div>
 <div id="step-4---for-each-date-and-cluster-fit-the-pb-roe-model-and-rank-stocks-based-on-the-resultant-valuation" class="section level4">
 <h4>Step 4 - For each date and cluster, fit the PB-ROE model and rank stocks based on the resultant valuation</h4>
-<p>I first learned about the Price/Book - Return on Equity (“PB-ROE”) model reading <a href="http://alephblog.com/2012/02/25/thinking-about-the-insurance-industry/">this</a> blog. The intuition of fitting a regression line to determine the relationship between return on equity and valuation, and then using deviations from this relationship (the residual from this regression) to determine relative valuation of stocks seemed simple and appealing. After all if some stocks in the same industry (or having the same financial characteristics in our example) have a higher ROE, they should be more valuable.</p>
+<p>I first learned about the Price/Book - Return on Equity (“PB-ROE”) model reading <a href="http://alephblog.com/2012/02/25/thinking-about-the-insurance-industry/">this</a> blog. The intuition of fitting a regression line to determine the relationship between return on equity and valuation, and then using deviations from this relationship (the residual from this regression) to determine relative valuation of stocks seemed simple and a common sense approach. After all, if some stocks in the same industry (or having the same financial characteristics in our example) have a higher ROE, they should be more valuable.</p>
 <p>The code block below creates the required inputs to the PB-ROE model, fits the model to each cluster at each date, and then joins this data back to our main dataframe <code>simfin.m</code>. This block of code relies heavily on the nesting functionality in the <code>purrr</code> package.</p>
 <pre class="r"><code>simfin.pbroe1 &lt;- simfin.m %&gt;% 
   # Price to book rato and ROE
@@ -469,14 +469,14 @@ simfin.pbroe &lt;- simfin.pbroe1 %&gt;%
 # Join to monthly data frame
 simfin.m &lt;- simfin.m %&gt;% left_join(simfin.pbroe) %&gt;% 
   
-  # Add percent rank of residual  TO DO: add +ve or -ve residual flag to indicate if
-  # over or under valued and group over this in addition to below.
+  # Add percent rank of residual
   group_by(me.date, clust.name) %&gt;% 
   mutate(PBROE.rank = percent_rank(desc(resid))) %&gt;% 
   ungroup() %&gt;% 
   rename(PBROE.resid = resid)</code></pre>
-<p>The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank. PBROE.resid is the difference between the actual log price book ratio and that inferred by the return on equity. If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model. Likewise a negative residual indicates undervaluation based on our model. PBROE.rank is a descending percent ranking of the PBROE.resid. A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.</p>
-<pre class="r"><code># Plot average r squared of regression model
+<p>The newly added attributes to our data frame are labelled PBROE.resid and PBROE.rank. PBROE.resid is the difference between the actual log price book ratio and that inferred by the return on equity. If the residual is a positive then stocks are considered overvalued, the actual price to book ratio is larger than that determined by the model. Likewise, a negative residual indicates undervaluation based on our model. PBROE.rank is a descending percent ranking of the PBROE.resid. A value of 1 is the lowest residual (undervalued) and a value of nil is the most overvalued.</p>
+<p>Lets inspect the results of the regression. Below is a plot of the log Price / Book ratio and ROE for each cluster as at December 2017.</p>
+<pre class="r"><code># Average r squared of regression model
 r.sq &lt;- simfin.pbroe1 %&gt;% 
   unnest(glanced) %&gt;% 
   select(me.date, clust.name, r.squared) %&gt;% 
@@ -512,11 +512,11 @@ simfin.m %&gt;%
         axis.title.y = element_text(color = &quot;darkslategrey&quot;),
         plot.caption = element_text(size = 9, color = &quot;grey55&quot;))</code></pre>
 <p><img src="/post/2019-05-12-ifrs9-disclosures-part-2_files/figure-html/pb_roe_check-1.png" width="792" /></p>
-<p>We expect to see an upward sloping line as the P (price or market capitalisation) in the logPB increases with greater ROE (return on equity). This is primarily what has been observed. A couple of clusters do have an inverted relationship and a very low number of individual observations.</p>
+<p>We expect to see an upward sloping line as the P (price or market capitalisation) in the logPB increases with greater ROE (return on equity). This is primarily what has been observed. A few clusters do have an inverted relationship and low number of individual observations. This is likely due to noise in the underlying data creating idiosyncracies in both the clustering and regression algorithms.</p>
 </div>
 <div id="step-5---apply-the-merton-distance-to-default-model-and-rank-stocks-by-probability-of-default" class="section level4">
 <h4>Step 5 - Apply the Merton distance to default model and rank stocks by probability of default</h4>
-<p><em>TO DO: Insert introductory explanation of Merton model here. Why does full version need iteration? Show summarised version. What does the distance to default actually represent?</em></p>
+<p>The Merton distance to default model assesses the credit risk of a company by modeling the company’s equity as a call option on its assets. Put another way, the model compares the value of assets to that of liabilities. It is considered a structural model because it provides a relationship between the default risk and the capital structure of the firm. A good summary of the model is provided <a href="https://uk.mathworks.com/help/risk/default-probability-using-the-merton-model-for-structural-credit-risk.html">here</a>.</p>
 <p>The Merton distance to default model has been modified in the <a href="https://econpapers.repec.org/paper/utsrpaper/112.htm">Merton for dummies</a> paper. It is this simplified version that we will implement.</p>
 <p>As always, firstly we need to prepare data for ingestion to the model. The three inputs are market capitalisation, debt and equity return volatility. Previous analysis has used both market cap and total debt, we have that data available. We have not calculated equity volatility thus far. This is calculated below.</p>
 <pre class="r"><code># Price - filter attributes and dates required
@@ -537,8 +537,10 @@ mutate(me.date = ceiling_date(publish.date, unit = &quot;month&quot;) - 1) %&gt;
             SharePrice = last(Indicator.Value)) %&gt;% 
   ungroup()
 
-# Join to monthly data frame
-simfin.m &lt;- simfin.m %&gt;% left_join(simfin.d)</code></pre>
+# Join to monthly data frame and fill foward
+simfin.m &lt;- simfin.m %&gt;% left_join(simfin.d) %&gt;% 
+  group_by(Ticker, SimFin.ID) %&gt;% fill(vol_3m) %&gt;% 
+  ungroup()</code></pre>
 <p>We now create the distance to default measure and assign a descending percent ranking thereof (MertonDD.rank).</p>
 <pre class="r"><code># Create Merton DD
 simfin.m &lt;- simfin.m %&gt;% 
@@ -546,9 +548,7 @@ simfin.m &lt;- simfin.m %&gt;%
                        log(1/(TotalDebt / (TotalDebt + mkt.cap))) / 
                        (vol_3m * (1-(TotalDebt/(TotalDebt + mkt.cap))))),
          MertonDD.rank = percent_rank(desc(MertonDD)))</code></pre>
-<p>A MertonDD.rank value of 1 is the highest value of distance to default, these are stocks that are unlikely to default and hence have low credit risk. Likewise lower values of MertonDD.rank represent stocks with smaller distance to default and higher credit risk.</p>
-<p>Let’s have a look at the highest and lowest ranked stocks for December 2017.</p>
-<p><em>TO DO: Visualise the results of the MertonDD attibute using DT</em></p>
+<p>A MertonDD.rank value of 1 is the highest value of distance to default, these are stocks that are unlikely to default and hence have low credit risk. Likewise, lower values of MertonDD.rank represent stocks with smaller distance to default and higher credit risk.</p>
 </div>
 <div id="step-6---combine-the-rankings-of-the-valuation-and-default-models-and-assign-an-ecl-and-risk-stage" class="section level4">
 <h4>Step 6 - Combine the rankings of the valuation and default models, and assign an ECL and risk stage</h4>
@@ -564,7 +564,7 @@ simfin.m &lt;- simfin.m %&gt;%
                            comb.rank &gt;= 0.65 ~ comb.rank * 0.20,
                            comb.rank &gt;= 0.45 ~ comb.rank * 0.10,
                            comb.rank &gt;= 0.25 ~ comb.rank * 0.05,
-                           TRUE ~ comb.rank * 0.025 * TotalDebt
+                           TRUE ~ comb.rank * 0.025
                            ),
          ECL = cover * TotalDebt)</code></pre>
 <p><em>TO DO: Visualise the results of the cover and ECL attibutes using DT</em></p>
