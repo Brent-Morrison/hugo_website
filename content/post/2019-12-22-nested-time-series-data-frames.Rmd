@@ -1,0 +1,134 @@
+---
+title: Nested time series data frames
+author: Brent
+date: '2019-12-22'
+slug: nested-time-series-data-frames
+categories:
+  - Time Series
+tags:
+  - R
+description: ''
+topics: []
+---
+
+Data leakage can be tricky when analysing time series.    Ensuring you are not using the future to predict the future is very important if you want to use the past to predict the future!   After all, you don't get to use future data when you are in the present! 
+
+Let's say we want to apply a machine learning algorithm that requires hyper-parameter tuning and hence a validation data set.
+
+This issue is usually dealt with using a walk forward training, validation, testing approach.  There are a couple of ways to do this. 
+
+1.  You can code up everything in loops.  A primitive stab at this has been performed [here](https://brentmorrison.netlify.com/post/time-series-cross-validation-in-python/). Of course to perform cross-validation an inner loop is required.
+2.  Sticking to `R`, any of the following can be used, `zoo::rollapply()`, `tibbletime::rollify()` or `tsibble::slide()`.  `tibbletime` has been retired in lieu of the `slide` family of functions from `tsibble`.  Subsequently, this functionality has been moved to the [`slide`](https://davisvaughan.github.io/slide/index.html) package.
+
+This post will take a different approach.  We will create a nested data frame containing multiple slices of the same time series.  The thought process behind this is to use this nested data frame to apply `purrr` like functions, negating the risk of data leakage.  Each time slice of our data will be neatly compartmentalised in each of the underlying data frames. 
+
+The requied packages.  
+```{r packages, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+library("tidyverse")
+library("lubridate")
+```
+
+We set parameters and grab some data.  
+```{r parameters, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+#Parameters
+train_length <- 300
+test_length <- 6
+
+# Data
+econ_fin_data <- readRDS("C:/Users/brent/Documents/R/Misc_scripts/econ_fin_data.Rda")
+data_length <- nrow(econ_fin_data)
+loops <- floor((nrow(econ_fin_data) - train_length) / test_length)
+start <- nrow(econ_fin_data) - ((loops * test_length) + train_length) + 1
+```
+
+A loop to create each slice of data, following by creation of the nested data frame.    
+```{r loop, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+# Empty tibble
+pre_nest_df = tibble()
+for (i in seq(start, by = test_length, length.out = loops)) {
+  df <- econ_fin_data
+  df <- slice(df, i:(i + train_length + test_length - 1)) %>% 
+    mutate(nest_label = paste(format(strftime(min(date), "%Y-%m")), 
+                              format(strftime(max(date), "%Y-%m")),
+                              sep = ":"))
+  pre_nest_df <- bind_rows(pre_nest_df,df) 
+}
+nested_df <- pre_nest_df %>% 
+  group_by(nest_label) %>% 
+  nest() %>% 
+  ungroup()
+
+# This is no longer required
+rm(pre_nest_df)
+```
+
+The resulting data frame.
+```{r example, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+tail(nested_df)
+```
+
+Lets unnest.
+```{r unnest, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+head(unnest(nested_df[99,2], cols = c(data)))
+```
+
+Which should be identical to the original data.
+```{r original, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+filter(econ_fin_data, between(date, as.Date("1994-06-01"), as.Date("1994-11-01")))
+```
+
+All is looking good.
+
+Lets put it in a function.
+```{r function, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+
+#===========================================================================================
+#==   NEST TIME SERIES DATA                                                               ==
+#==                                                                                       ==
+#==   df1 is a dataframe containing the following columns:                                ==
+#==   - date                                                                              ==
+#==   - other columns holding the data to be nested                                       ==
+#==   train_length is the length of the training dataset                                  ==
+#==   test_length is the length of the testing dataset and will represent                 == 
+#==   the step forward in time                                                            ==
+#===========================================================================================
+
+ts_nest <- function(df, train_length, test_length) {
+  
+  # Parameters
+  loops <- floor((nrow(df) - train_length) / test_length)
+  start <- nrow(df) - ((loops * test_length) + train_length) + 1
+  
+  # Empty tibble
+  pre_nest_df = tibble()
+  
+  # Loop
+  for (i in seq(start, by = test_length, length.out = loops)) {
+    df <- econ_fin_data
+    df <- slice(df, i:(i + train_length + test_length - 1)) %>% 
+      mutate(nest_label = paste(format(strftime(min(date), "%Y-%m")), 
+                                format(strftime(max(date), "%Y-%m")),
+                                sep = ":"))
+    # Join tables
+    pre_nest_df <- bind_rows(pre_nest_df,df) 
+  }
+  
+  nested_df <- pre_nest_df %>% 
+    group_by(nest_label) %>% 
+    nest() %>% 
+    ungroup()
+}
+
+nested_test <- ts_nest(econ_fin_data, 300, 6)
+```
+
+Our test and original dataframe should be identical. 
+```{r identical, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
+identical(nested_df, nested_test)
+```
+
+OK.  Good.  Now to some modelling
+
+https://www.theregister.co.uk/2019/07/03/nature_study_earthquakes/
+https://journals.plos.org/plosone/article?id=10.1371/journal.pone.0118432
+  
