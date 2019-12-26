@@ -38,6 +38,8 @@ start &lt;- nrow(econ_fin_data) - ((loops * test_length) + train_length) + 1</co
 <p>Next, we loop over the data set to create each slice of data, labeling these with the date range to which they relate. Each newly labelled slice is appending to a new data frame. This new data frame is then grouped by the labels just created and nested.</p>
 <pre class="r"><code># Empty tibble
 nested_df = tibble()
+
+# Loop
 for (i in seq(start, by = test_length, length.out = loops)) {
   df &lt;- econ_fin_data
   df &lt;- slice(df, i:(i + train_length + test_length - 1)) %&gt;% 

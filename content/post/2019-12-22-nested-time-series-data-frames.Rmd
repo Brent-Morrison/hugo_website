@@ -47,6 +47,8 @@ Next, we loop over the data set to create each slice of data, labeling these wit
 ```{r loop, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}
 # Empty tibble
 nested_df = tibble()
+
+# Loop
 for (i in seq(start, by = test_length, length.out = loops)) {
   df <- econ_fin_data
   df <- slice(df, i:(i + train_length + test_length - 1)) %>% 
