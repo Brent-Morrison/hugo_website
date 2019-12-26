@@ -1,0 +1,145 @@
+---
+title: Nested time series data frames
+author: Brent
+date: '2019-12-22'
+slug: nested-time-series-data-frames
+categories:
+  - Time Series
+tags:
+  - R
+description: ''
+topics: []
+---
+
+
+
+<p>Data leakage can be tricky when analysing time series. Ensuring you are not using the future to predict the future is very important if you want to use the past to predict the future! After all, you don’t get to use future data when you are in the present!</p>
+<p><a href="https://www.theregister.co.uk/2019/07/03/nature_study_earthquakes/">These</a> earthquake researchers have been accused of mixing things up.</p>
+<p>Let’s say we want to apply a machine learning algorithm that requires hyper-parameter tuning and hence a validation data set to a time series. Normally this is implemented using a walk forward training, validation, testing approach. There are a couple of ways to do this.</p>
+<ol style="list-style-type: decimal">
+<li>You can code up everything in loops. A primitive stab at this has been performed <a href="https://brentmorrison.netlify.com/post/time-series-cross-validation-in-python/">here</a>. Of course to perform cross-validation an inner loop is required.</li>
+<li>Sticking to <code>R</code> and avoiding loops, any of the following can be used, <code>zoo::rollapply()</code>, <code>tibbletime::rollify()</code> or <code>tsibble::slide()</code>. <code>tibbletime</code> has been retired in lieu of the <code>slide</code> family of functions from <code>tsibble</code>. Subsequently, this functionality has been moved to the <a href="https://davisvaughan.github.io/slide/index.html"><code>slide</code></a> package.</li>
+</ol>
+<p>This post will take a different approach. We will create a nested data frame containing multiple slices of the same time series. The idea behind this is to use this nested data frame to apply functions and train models using the functionality from the <code>purrr</code> package. This will help negate the risk of data leakage. Each time slice of our data will be neatly compartmentalised in each of the underlying nested data frames.</p>
+<p>Lets get started building this nested data frame.</p>
+<p>The required packages.</p>
+<pre class="r"><code>library(&quot;tidyverse&quot;)
+library(&quot;lubridate&quot;)</code></pre>
+<p>We set parameters for the length of time slices and grab some data.</p>
+<pre class="r"><code># Parameters
+train_length &lt;- 300
+test_length &lt;- 6
+
+# Data
+econ_fin_data &lt;- readRDS(&quot;C:/Users/brent/Documents/R/Misc_scripts/econ_fin_data.Rda&quot;)
+data_length &lt;- nrow(econ_fin_data)
+loops &lt;- floor((nrow(econ_fin_data) - train_length) / test_length)
+start &lt;- nrow(econ_fin_data) - ((loops * test_length) + train_length) + 1</code></pre>
+<p>Next, we loop over the data set to create each slice of data, labeling these with the date range to which they relate. Each newly labelled slice is appending to a new data frame. This new data frame is then grouped by the labels just created and nested.</p>
+<pre class="r"><code># Empty tibble
+nested_df = tibble()
+for (i in seq(start, by = test_length, length.out = loops)) {
+  df &lt;- econ_fin_data
+  df &lt;- slice(df, i:(i + train_length + test_length - 1)) %&gt;% 
+    mutate(nest_label = paste(format(strftime(min(date), &quot;%Y-%m&quot;)), 
+                              format(strftime(max(date), &quot;%Y-%m&quot;)),
+                              sep = &quot;:&quot;))
+  nested_df &lt;- bind_rows(nested_df,df) 
+}
+nested_df &lt;- nested_df %&gt;% 
+  group_by(nest_label) %&gt;% 
+  nest() %&gt;% 
+  ungroup()</code></pre>
+<p>Here is the resulting data frame.</p>
+<pre class="r"><code>tail(nested_df)</code></pre>
+<pre><code>## # A tibble: 6 x 2
+##   nest_label                 data
+##   &lt;chr&gt;           &lt;list&lt;df[,47]&gt;&gt;
+## 1 1991-12:2017-05      [306 x 47]
+## 2 1992-06:2017-11      [306 x 47]
+## 3 1992-12:2018-05      [306 x 47]
+## 4 1993-06:2018-11      [306 x 47]
+## 5 1993-12:2019-05      [306 x 47]
+## 6 1994-06:2019-11      [306 x 47]</code></pre>
+<p>Lets unnest.</p>
+<pre class="r"><code>tail(unnest(nested_df[99,2], cols = c(data)))</code></pre>
+<pre><code>## # A tibble: 6 x 47
+##   date         AAA ACDGNO AHETPI AWHMAN   BAA BOGMBASE CFNAIDIFF CPIAUCSL
+##   &lt;date&gt;     &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;
+## 1 2019-06-01  3.42  44973   23.4   41.7  4.46  3274825     -0.15     255.
+## 2 2019-07-01  3.29  45146   23.5   41.5  4.28  3260316     -0.21     256.
+## 3 2019-08-01  2.98  44576   23.6   41.5  3.87  3271378     -0.09     256.
+## 4 2019-09-01  3.03  43233   23.7   41.5  3.91  3202682     -0.24     256.
+## 5 2019-10-01  3.01  42476   23.8   41.4  3.92  3252830     -0.22     257.
+## 6 2019-11-01  3.06  42476   23.8   41.4  3.94  3315603     -0.22      NA 
+## # ... with 38 more variables: CPILFESL &lt;dbl&gt;, FEDFUNDS &lt;dbl&gt;, GS10 &lt;dbl&gt;,
+## #   GS2 &lt;dbl&gt;, INDPRO &lt;dbl&gt;, ISRATIO &lt;dbl&gt;, KCFSI &lt;dbl&gt;, LOANS &lt;dbl&gt;,
+## #   M2SL &lt;dbl&gt;, NEWORDER &lt;dbl&gt;, PERMIT &lt;dbl&gt;, TB3MS &lt;dbl&gt;, TWEXMMTH &lt;dbl&gt;,
+## #   UNRATE &lt;dbl&gt;, IC4WSA &lt;int&gt;, NEWORD &lt;dbl&gt;, HMI &lt;dbl&gt;, P &lt;dbl&gt;, D &lt;dbl&gt;,
+## #   E &lt;dbl&gt;, CPI &lt;dbl&gt;, Fraction &lt;dbl&gt;, Rate.GS10 &lt;dbl&gt;, Price &lt;dbl&gt;,
+## #   Dividend &lt;dbl&gt;, Earnings &lt;dbl&gt;, CAPE &lt;dbl&gt;, low &lt;dbl&gt;, close &lt;dbl&gt;,
+## #   volume &lt;dbl&gt;, rtn_m &lt;dbl&gt;, fwd_rtn_m &lt;dbl&gt;, rtn_6m &lt;dbl&gt;,
+## #   min_6m &lt;dbl&gt;, dd_6m &lt;dbl&gt;, flag &lt;dbl&gt;, y1 &lt;dbl&gt;, diff_flag &lt;dbl&gt;</code></pre>
+<p>This should be identical to the original data.</p>
+<pre class="r"><code>filter(econ_fin_data, between(date, as.Date(&quot;2019-06-01&quot;), as.Date(&quot;2019-11-01&quot;)))</code></pre>
+<pre><code>## # A tibble: 6 x 47
+##   date         AAA ACDGNO AHETPI AWHMAN   BAA BOGMBASE CFNAIDIFF CPIAUCSL
+##   &lt;date&gt;     &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt;  &lt;dbl&gt; &lt;dbl&gt;    &lt;dbl&gt;     &lt;dbl&gt;    &lt;dbl&gt;
+## 1 2019-06-01  3.42  44973   23.4   41.7  4.46  3274825     -0.15     255.
+## 2 2019-07-01  3.29  45146   23.5   41.5  4.28  3260316     -0.21     256.
+## 3 2019-08-01  2.98  44576   23.6   41.5  3.87  3271378     -0.09     256.
+## 4 2019-09-01  3.03  43233   23.7   41.5  3.91  3202682     -0.24     256.
+## 5 2019-10-01  3.01  42476   23.8   41.4  3.92  3252830     -0.22     257.
+## 6 2019-11-01  3.06  42476   23.8   41.4  3.94  3315603     -0.22      NA 
+## # ... with 38 more variables: CPILFESL &lt;dbl&gt;, FEDFUNDS &lt;dbl&gt;, GS10 &lt;dbl&gt;,
+## #   GS2 &lt;dbl&gt;, INDPRO &lt;dbl&gt;, ISRATIO &lt;dbl&gt;, KCFSI &lt;dbl&gt;, LOANS &lt;dbl&gt;,
+## #   M2SL &lt;dbl&gt;, NEWORDER &lt;dbl&gt;, PERMIT &lt;dbl&gt;, TB3MS &lt;dbl&gt;, TWEXMMTH &lt;dbl&gt;,
+## #   UNRATE &lt;dbl&gt;, IC4WSA &lt;int&gt;, NEWORD &lt;dbl&gt;, HMI &lt;dbl&gt;, P &lt;dbl&gt;, D &lt;dbl&gt;,
+## #   E &lt;dbl&gt;, CPI &lt;dbl&gt;, Fraction &lt;dbl&gt;, Rate.GS10 &lt;dbl&gt;, Price &lt;dbl&gt;,
+## #   Dividend &lt;dbl&gt;, Earnings &lt;dbl&gt;, CAPE &lt;dbl&gt;, low &lt;dbl&gt;, close &lt;dbl&gt;,
+## #   volume &lt;dbl&gt;, rtn_m &lt;dbl&gt;, fwd_rtn_m &lt;dbl&gt;, rtn_6m &lt;dbl&gt;,
+## #   min_6m &lt;dbl&gt;, dd_6m &lt;dbl&gt;, flag &lt;dbl&gt;, y1 &lt;dbl&gt;, diff_flag &lt;dbl&gt;</code></pre>
+<p>That looks good. As expected, identical results have been returned.</p>
+<p>Lets put it in a function.</p>
+<pre class="r"><code>#===========================================================================================
+#==   NEST TIME SERIES DATA                                                               ==
+#==                                                                                       ==
+#==   The following arguments are accepted:                                               ==
+#==   - &#39;df&#39; is a dataframe containing one column labelled &quot;date&quot;.  The &quot;date&quot; column     ==
+#==     must be in a date format                                                          ==
+#==   - &#39;train_length&#39; is the length of the training dataset                              ==
+#==   - &#39;test_length&#39; is the length of the testing dataset and will represent             == 
+#==     the step forward in time                                                          ==
+#===========================================================================================
+
+ts_nest &lt;- function(df, train_length, test_length) {
+  
+  # Parameters
+  loops &lt;- floor((nrow(df) - train_length) / test_length)
+  start &lt;- nrow(df) - ((loops * test_length) + train_length) + 1
+  
+  # Empty tibble
+  nested_df = tibble()
+  
+  # Loop
+  for (i in seq(start, by = test_length, length.out = loops)) {
+    df &lt;- econ_fin_data
+    df &lt;- slice(df, i:(i + train_length + test_length - 1)) %&gt;% 
+      mutate(nest_label = paste(format(strftime(min(date), &quot;%Y-%m&quot;)), 
+                                format(strftime(max(date), &quot;%Y-%m&quot;)),
+                                sep = &quot;:&quot;))
+    # Join tables
+    nested_df &lt;- bind_rows(nested_df,df) 
+  }
+  
+  nested_df &lt;- nested_df %&gt;% 
+    group_by(nest_label) %&gt;% 
+    nest() %&gt;% 
+    ungroup()
+}
+
+nested_test &lt;- ts_nest(econ_fin_data, 300, 6)</code></pre>
+<p>Our test and original data frame should be identical.</p>
+<pre class="r"><code>identical(nested_df, nested_test)</code></pre>
+<pre><code>## [1] TRUE</code></pre>
+<p>That’s a wrap. This will put us in a good place to look at this type of <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3159577">analysis</a>.</p>
