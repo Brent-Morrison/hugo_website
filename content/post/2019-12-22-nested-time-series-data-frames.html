@@ -39,7 +39,7 @@ start &lt;- nrow(econ_fin_data) - ((loops * test_length) + train_length) + 1</co
 <pre class="r"><code># Empty tibble
 nested_df = tibble()
 
-# Loop
+# Loop for time slices
 for (i in seq(start, by = test_length, length.out = loops)) {
   df &lt;- econ_fin_data
   df &lt;- slice(df, i:(i + train_length + test_length - 1)) %&gt;% 
