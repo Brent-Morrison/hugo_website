@@ -15,7 +15,7 @@ topics: []
 
 <p>Data leakage can be tricky when analysing time series. Ensuring you are not using the future to predict the future is very important if you want to use the past to predict the future! After all, you don’t get to use future data when you are in the present!</p>
 <p><a href="https://www.theregister.co.uk/2019/07/03/nature_study_earthquakes/">These</a> earthquake researchers have been accused of mixing things up.</p>
-<p>Let’s say we want to apply a machine learning algorithm that requires hyper-parameter tuning and hence a validation data set to a time series. Normally this is implemented using a walk forward training, validation, testing approach. There are a couple of ways to do this.</p>
+<p>Let’s say we want to apply a machine learning algorithm that requires hyper-parameter tuning, and hence a validation data set, to a time series. Normally this is implemented using a walk forward training, validation, testing approach. There are a couple of ways to do this.</p>
 <ol style="list-style-type: decimal">
 <li>You can code up everything in loops. A primitive stab at this has been performed <a href="https://brentmorrison.netlify.com/post/time-series-cross-validation-in-python/">here</a>. Of course to perform cross-validation an inner loop is required.</li>
 <li>Sticking to <code>R</code> and avoiding loops, any of the following can be used, <code>zoo::rollapply()</code>, <code>tibbletime::rollify()</code> or <code>tsibble::slide()</code>. <code>tibbletime</code> has been retired in lieu of the <code>slide</code> family of functions from <code>tsibble</code>. Subsequently, this functionality has been moved to the <a href="https://davisvaughan.github.io/slide/index.html"><code>slide</code></a> package.</li>
@@ -25,7 +25,7 @@ topics: []
 <p>The required packages.</p>
 <pre class="r"><code>library(&quot;tidyverse&quot;)
 library(&quot;lubridate&quot;)</code></pre>
-<p>We set parameters for the length of time slices and grab some data.</p>
+<p>We set parameters for the length of each time slice, and grab some data.</p>
 <pre class="r"><code># Parameters
 train_length &lt;- 300
 test_length &lt;- 6
@@ -100,7 +100,7 @@ nested_df &lt;- nested_df %&gt;%
 ## #   volume &lt;dbl&gt;, rtn_m &lt;dbl&gt;, fwd_rtn_m &lt;dbl&gt;, rtn_6m &lt;dbl&gt;,
 ## #   min_6m &lt;dbl&gt;, dd_6m &lt;dbl&gt;, flag &lt;dbl&gt;, y1 &lt;dbl&gt;, diff_flag &lt;dbl&gt;</code></pre>
 <p>That looks good. As expected, identical results have been returned.</p>
-<p>Lets put it in a function.</p>
+<p>Lets put it in a function and test the output.</p>
 <pre class="r"><code>#===========================================================================================
 #==   NEST TIME SERIES DATA                                                               ==
 #==                                                                                       ==
@@ -138,6 +138,7 @@ ts_nest &lt;- function(df, train_length, test_length) {
     ungroup()
 }
 
+# Test data frame using the same parameters as above 
 nested_test &lt;- ts_nest(econ_fin_data, 300, 6)</code></pre>
 <p>Our test and original data frame should be identical.</p>
 <pre class="r"><code>identical(nested_df, nested_test)</code></pre>
