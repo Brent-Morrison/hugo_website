@@ -13,8 +13,6 @@ description: ''
 topics: []
 ---
 
-*This post is incomplete.  Outstanding actions are labelled "TO DO"*
-
 This post is a continuation of the series initiated [here](https://brentmorrison.netlify.com/post/ifrs9-disclosures/).
 
 Recall our problem imagines we are a bank lending to the largest 1,000 US companies.  We ("Bank1000") own the debt of these companies and are required to prepare IFRS9 disclosures.  This requires the estimation of an expected credit loss ("ECL") and risk stage.
@@ -439,7 +437,7 @@ kclust16.tot <- kclust16.tot %>% mutate(SimFin.ID = as.numeric(SimFin.ID))
 
 It's worth noting that the most efficient implementation of the code block above is via a function.  I'm going to leave that another day.
 
-Lets try to understand how our clustering algorithm is working. Remember we are re-assessing cluster membership every six months.  It is therefore likely that clusters will change over time as the financial ratios representing the highest and lowest cluster centres also change over time.  The plot below lists all clusters, displaying the months in which they are present and the number of stocks in each cluster at each assessment date.  There are 16 points in each column representing the number of clusters, k. The clusters are ordered by count of occurance. 
+Lets try to understand how our clustering algorithm is working. Remember we are re-assessing cluster membership every six months.  It is therefore likely that clusters will change over time as the financial ratios representing the highest and lowest cluster centres also change over time.  The plot below lists all clusters, displaying the months in which they are present and the number of stocks in each cluster at each assessment date.  There are 16 points in each column representing the number of clusters, k. The clusters are ordered by count of occurrence. 
 
 ```{r cluster_lplot, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25, fig.align='left'}  
 kclust16.tot %>% 
@@ -464,7 +462,7 @@ kclust16.tot %>%
 
 The plot above shows that cluster membership is driven by different attributes at different points in time.  There are a total of `` `r n_distinct(kclust16.tot$clust.name)` `` individual clusters over the ten assessment dates  .  Had there been no variation in cluster formation at each assessment date the plot above would list 16 clusters only.  The largest number of stocks in any one cluster is `` `r max(kclust16.tot$size)` ``, the smallest is `` `r min(kclust16.tot$size)` ``.  
 
-Moving on, we need to join are cluster assessment back to the original monthly dataset.  The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.
+Moving on, we need to join are cluster assessment back to the original monthly data set.  The code block below joins the cluster labels to the monthly data set and then fills forward the cluster membership.
 
 ```{r join_clust, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
 # Join tables
@@ -629,19 +627,66 @@ simfin.m <- simfin.m %>%
   mutate(avg.rank = (PBROE.rank + MertonDD.rank) /2,
          comb.rank = percent_rank(avg.rank)) %>% 
   ungroup() %>% 
-  mutate(cover = case_when(comb.rank >= 0.95 ~ comb.rank * 0.50,
-                           comb.rank >= 0.85 ~ comb.rank * 0.40,
-                           comb.rank >= 0.75 ~ comb.rank * 0.30,
-                           comb.rank >= 0.65 ~ comb.rank * 0.20,
-                           comb.rank >= 0.45 ~ comb.rank * 0.10,
-                           comb.rank >= 0.25 ~ comb.rank * 0.05,
-                           TRUE ~ comb.rank * 0.025
-                           ),
-         ECL = cover * TotalDebt)
+  mutate(
+    cover = case_when(
+      comb.rank >= 0.95 ~ comb.rank * 0.50,
+      comb.rank >= 0.85 ~ comb.rank * 0.40,
+      comb.rank >= 0.75 ~ comb.rank * 0.30,
+      comb.rank >= 0.65 ~ comb.rank * 0.20,
+      comb.rank >= 0.45 ~ comb.rank * 0.10,
+      comb.rank >= 0.25 ~ comb.rank * 0.05,
+      TRUE ~ comb.rank * 0.025
+      ),
+    ECL = cover * TotalDebt,
+    RiskStage = case_when(
+      comb.rank >= 0.8 ~ 3,
+      comb.rank >= 0.5 ~ 2,
+      TRUE ~ 1
+      )
+    )
 ```
 
+Let's have a look at couple of stocks.  The code below filters for stock tickers beginning with "AA" and extracts information as at quarter end dates post 2016.
+```{r result_table, error=FALSE, message=FALSE, warning=FALSE, echo=TRUE}  
+simfin.m %>% 
+  filter(
+    me.date %in% c(
+      as.Date("2017-03-31"),
+      as.Date("2017-06-30"),
+      as.Date("2017-09-30"),
+      as.Date("2017-12-31"),
+      as.Date("2018-03-31"),
+      as.Date("2018-06-30")
+      ), 
+    str_detect(Ticker, "^AA")
+    ) %>% 
+  select(Ticker, 
+         Date = me.date, 
+         'Risk Stage' = RiskStage,
+         'Fundamental cluster' = clust.name,
+         'Total Debt' = TotalDebt, ECL) %>% 
+  arrange(Ticker, Date) %>% 
+  mutate_if(is.numeric, round, digits = 0) %>% 
+  datatable(
+    rownames = FALSE,
+    options = list(
+      pageLength = 10,
+      columnDefs = list(list(className = 'dt-center', targets = 0:5))
+      ),
+    escape = FALSE
+  ) %>% 
+  formatCurrency(
+    c("Total Debt", "ECL"), 
+    currency = "", 
+    interval = 3, 
+    digits = 0, 
+    mark = ","
+    )
+```
 
-*TO DO: Visualise the results of the cover and ECL attibutes using DT*
+$~$
+
+An observation reviewing the data extracted above.   It is apparent changes in cluster membership cause unexpected changes in the risk stage and ECL balance.  For example AAPL has moved cluster membership between December 2017 and March 2018. Accompanying this movement is a significant increase in ECL balance.  This does not seem correct, AAPL fundamentals have not changed during this period.  My natural inclination is to understand the "why" behind this change in modelled ECL balance.  For now I am going to leave this.  This post is already getting too long.  Having said that, debugging the results we see is an important skill and something I will come back to.  
 
 #### Conclusion
 
@@ -652,10 +697,4 @@ We have gone down a rabbit hole in deriving these attributes and that is intenti
 [^2]: We could have easily assigned an ECL by multiplying the loan balance by a random number between say 0.5 and 0.05.
 
 
-### References
 
-[Merton for dummies](https://econpapers.repec.org/paper/utsrpaper/112.htm)  
-[PB-ROE link1](https://seekingalpha.com/article/40398-pb-roe-analysis-a-very-useful-tool)  
-[PB-ROE link2](https://www.seactuary.com/files/handouts/wall_street_view_of_insurers.pdf)  
-[descriptr](https://dabblingwithdata.wordpress.com/2018/02/26/r-packages-for-summarising-data-part-2/)  
-[Merton](http://www.bradfordlynch.com/blog/2017/05/20/ProbabilityOfDefault.html)  
