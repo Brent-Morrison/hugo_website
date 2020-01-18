@@ -696,5 +696,21 @@ We have gone down a rabbit hole in deriving these attributes and that is intenti
 
 [^2]: We could have easily assigned an ECL by multiplying the loan balance by a random number between say 0.5 and 0.05.
 
+```{r save_result, error=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+ifrs9_part2 <- simfin.m %>% 
+  filter(me.date > as.Date("2016-12-01")) %>% 
+  select(
+    Ticker, 
+    me.date,
+    clust.name,
+    RiskStage,
+    TotalDebt,
+    ECL
+    ) %>% 
+  arrange(Ticker, me.date) %>% 
+  drop_na()
 
+
+saveRDS(ifrs9_part2, file = "ifrs9_part2.Rds")
+```
 
