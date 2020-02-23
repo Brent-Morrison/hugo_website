@@ -1,7 +1,7 @@
 baseurl = "https://BrentMorrison.netlify.com"
 languageCode = "en-us"
 title = "Brent Morrison's blog"
-theme = ""
+theme = "blackburn"
 author = "Yoshiharu Yamashita"
 copyright = "&copy; 2016. All rights reserved."
 canonifyurls = true
