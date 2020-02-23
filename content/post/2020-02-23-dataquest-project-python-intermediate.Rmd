@@ -1,0 +1,17 @@
+---
+title: Dataquest project - Python intermediate
+author: Brent Morrison
+date: '2020-02-23'
+slug: dataquest-project-python-intermediate
+categories:
+  - Python
+tags:
+  - Dataquest
+  - Python
+description: ''
+topics: []
+---
+
+The next instalment of the Dataquest guided projects.  [This one](https://nbviewer.jupyter.org/github/Brent-Morrison/Dataquest/blob/master/02_intermediate_hacker_news.ipynb) covers the `datetime` module and like the [last](https://brentmorrison.netlify.com/post/dataquest-project-python-basics/), heavily utilises loops and dictionaries.  
+
+Next up its `Numpy` and `pandas`!!

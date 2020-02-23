@@ -1,7 +1,7 @@
 baseurl = "https://BrentMorrison.netlify.com"
 languageCode = "en-us"
 title = "Brent Morrison's blog"
-theme = "blackburn"
+theme = ""
 author = "Yoshiharu Yamashita"
 copyright = "&copy; 2016. All rights reserved."
 canonifyurls = true
@@ -14,7 +14,7 @@ ignoreFiles = ["\\.Rmd$", "\\.Rmarkdown$", "_files$", "_cache$"]
 
 [params]
   # Shown in the home page
-  subtitle = "A Hugo Theme"
+  subtitle = ""
   brand = "Blackburn"
   googleAnalytics = "Your Google Analytics tracking ID"
   disqus = "Your Disqus shortname"
