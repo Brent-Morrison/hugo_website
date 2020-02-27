@@ -56,7 +56,8 @@ library(&quot;summarytools&quot;)
 library(&quot;data.table&quot;)
 library(&quot;DT&quot;)
 library(&quot;widgetframe&quot;)
-library(&quot;htmltools&quot;)</code></pre>
+library(&quot;htmltools&quot;)
+library(&quot;feather&quot;)</code></pre>
 <p>Next, we read in the Simfin raw data and create the market capitalisation attribute and market capitalisation cut-offs. This is the same initial step that was performed in the prior post.</p>
 <pre class="r"><code>simfin &lt;- fread(&quot;C:/Users/brent/Documents/R/R_import/output-comma-narrow.csv&quot;) %&gt;% 
   rename_all(list(~str_replace_all(., &quot; &quot;, &quot;.&quot;))) %&gt;% 

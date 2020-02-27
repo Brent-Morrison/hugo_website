@@ -53,6 +53,7 @@ library("data.table")
 library("DT")
 library("widgetframe")
 library("htmltools")
+library("feather")
 ```
 
 Next, we read in the Simfin raw data and create the market capitalisation attribute and market capitalisation cut-offs.  This is the same initial step that was performed in the prior post.
@@ -712,5 +713,6 @@ ifrs9_part2 <- simfin.m %>%
 
 
 saveRDS(ifrs9_part2, file = "ifrs9_part2.Rds")
+write_feather(ifrs9_part2, "ifrs9_part2.feather")
 ```
 
