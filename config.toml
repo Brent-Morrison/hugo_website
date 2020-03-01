@@ -1,4 +1,4 @@
-baseurl = "https://BrentMorrison.netlify.com"
+baseurl = "https://BrentMorrison.netlify.com/"
 languageCode = "en-us"
 title = "Brent Morrison's blog"
 theme = "blackburn"
@@ -15,7 +15,7 @@ ignoreFiles = ["\\.Rmd$", "\\.Rmarkdown$", "_files$", "_cache$"]
 [params]
   # Shown in the home page
   subtitle = ""
-  brand = "Blackburn"
+  brand = "B.M."
   googleAnalytics = "Your Google Analytics tracking ID"
   disqus = "Your Disqus shortname"
   # CSS name for highlight.js
