@@ -12,12 +12,15 @@ description: ''
 topics: []
 ---
 
-We continue on our quest on IFRS9 disclosures!
+So we continue on our IFRS9 disclosures quest!  
+
+[Part 2](https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/) had us doing some heavy data munging, followed by modeling to get an ECL balance.  
+
+In this post we will massage this dataset into the report we set out to build in the first post.
 
 ```{r opts, include=FALSE}
 knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25)
 ```
-
 
 ```{r packages}
 library("tidyverse")
@@ -31,11 +34,24 @@ library("widgetframe")
 library("htmltools")
 ```
 
-Rename variables to align with the code implemented [here](https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R).
+The obvious starting point is to grab the data from part 2.  This data was saved as both a `feather` and `rds` file.  These are online in the blogs repo [here](https://github.com/Brent-Morrison/hugo_website/tree/master/content/post).  I'm going to load the local copy for now. 
 
 ```{r data}
 ifrs9_part2 <- readRDS(file = "ifrs9_part2.Rds")
+```
 
+Below I transform attribute names to a format based on a separate implementation of this dataflow.  Additional attributes have been generated here:  
+  * Currency `ccy`, the (imaginary) currency of the loan  
+  * Type `type`, this assigns a stock (a customer of our bank) as either revolving or term.  A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once  
+  * "Purchased or originated financial asset(s) that are credit-impaired on initial recognition", I won't go into that mouthful here. Just know that it is a required classification  
+  * The ledger balance of the loan `bal`. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred  
+  * `wof`, write-offs  
+  * `pryr`, prior year balance for stage 1 loans assuming no model input changes   
+  * `prlt`, prior year balance for stage 2 and 3 loans assuming no model input changes  
+
+This task has been worked on separately [here](https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R). To take advantage of this work I need to rename variables.
+
+```{r transform}
 ifrs9_part3 <- ifrs9_part2 %>% 
   rename(
     cust = Ticker,
@@ -46,8 +62,6 @@ ifrs9_part3 <- ifrs9_part2 %>%
     ) %>% 
   mutate(
     date = me.date,
-    #year = year(me.date),
-    #mth = month(me.date),
     # Assign missing attributes
     ccy = if_else(str_detect(cust, "^G"), "GBP", "USD"),
     type = if_else(str_detect(cust, "^R"), "rvlv", "term"),
@@ -61,6 +75,7 @@ ifrs9_part3 <- ifrs9_part2 %>%
   select(-me.date)
 ```
 
+Here we go with the mother of all transforms....
 
 ```{r create_tables_1}
 #=========================================================================================
@@ -216,8 +231,8 @@ bln_mvnt_long <- bln_mvnt %>%
 ```{r create_tables_2}
 report <- bln_mvnt_long %>% 
   filter(
-    cust == "AAPL",
-    date == "2018-01-31"
+    cust == "ORCL",
+    date == "2017-06-30"
     ) %>% 
   select(
     -date:-ctgy.cl
