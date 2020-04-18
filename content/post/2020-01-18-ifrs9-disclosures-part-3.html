@@ -1,0 +1,220 @@
+---
+title: IFRS9 disclosures (part 3)
+author: Brent Morrison
+date: '2020-01-18'
+slug: ifrs9-disclosures-part-3
+categories:
+  - Accounting
+tags:
+  - R
+  - Accounting
+description: ''
+topics: []
+---
+
+
+
+<p>So we continue on our IFRS9 disclosures quest!</p>
+<p><a href="https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/">Part 2</a> had us doing some heavy data munging, followed by modeling to get an ECL balance.</p>
+<p>In this post we will massage this dataset into the report we set out to build in the first post.</p>
+<pre class="r"><code>library(&quot;tidyverse&quot;)
+library(&quot;DescTools&quot;)
+library(&quot;lubridate&quot;)
+library(&quot;tibbletime&quot;)
+library(&quot;scales&quot;)
+library(&quot;kableExtra&quot;)
+library(&quot;DT&quot;)
+library(&quot;widgetframe&quot;)
+library(&quot;htmltools&quot;)</code></pre>
+<p>The obvious starting point is to grab the data from part 2. This data was saved as both a <code>feather</code> and <code>rds</code> file. These are online in the blogs repo <a href="https://github.com/Brent-Morrison/hugo_website/tree/master/content/post">here</a>. I’m going to load the local copy for now.</p>
+<pre class="r"><code>ifrs9_part2 &lt;- readRDS(file = &quot;ifrs9_part2.Rds&quot;)</code></pre>
+<p>Below I transform attribute names to a format based on a separate implementation of this dataflow. Additional attributes have been generated here:<br />
+* Currency <code>ccy</code>, the (imaginary) currency of the loan<br />
+* Type <code>type</code>, this assigns a stock (a customer of our bank) as either revolving or term. A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once<br />
+* “Purchased or originated financial asset(s) that are credit-impaired on initial recognition”, I won’t go into that mouthful here. Just know that it is a required classification<br />
+* The ledger balance of the loan <code>bal</code>. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred<br />
+* <code>wof</code>, write-offs<br />
+* <code>pryr</code>, prior year balance for stage 1 loans assuming no model input changes<br />
+* <code>prlt</code>, prior year balance for stage 2 and 3 loans assuming no model input changes</p>
+<p>This task has been worked on separately <a href="https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R">here</a>. To take advantage of this work I need to rename variables.</p>
+<pre class="r"><code>ifrs9_part3 &lt;- ifrs9_part2 %&gt;% 
+  rename(
+    cust = Ticker,
+    unit = clust.name,
+    stage = RiskStage,
+    gca = TotalDebt,
+    ecl = ECL
+    ) %&gt;% 
+  mutate(
+    date = me.date,
+    # Assign missing attributes
+    ccy = if_else(str_detect(cust, &quot;^G&quot;), &quot;GBP&quot;, &quot;USD&quot;),
+    type = if_else(str_detect(cust, &quot;^R&quot;), &quot;rvlv&quot;, &quot;term&quot;),
+    poci = if_else(str_detect(cust, &quot;^P&quot;) &amp; stage == 3, &quot;Y&quot;, &quot;N&quot;),
+    bal = gca,
+    ecl = -ecl,
+    wof = 0,
+    pryr = 0,
+    prlt = 0
+  ) %&gt;% 
+  select(-me.date)</code></pre>
+<p>Here we go with the mother of all transforms….</p>
+<pre class="r"><code>#=========================================================================================
+#==    Create stage attributes &amp; movement balances                                      ==
+#==    1. assign disclosure stage (1 / 2 / 3 / 4=POCI_NCI / 5=POCICI)                   ==
+#==    2. fill stage with preceding value (ignores initial na&#39;s)                        ==
+#==       &amp; default remaining na&#39;s to stage 1                                           ==
+#==    3. create lagged values of balances and prior period balance                     ==
+#==    4. rename closing balance attributes                                             ==
+#==    5. add cumulative movement                                                       ==
+#==    TO DO - add FINREP change of stage indicator for table 12.1                      ==
+#=========================================================================================
+
+#min.date &lt;- ifrs9_part3 %&gt;% slice(which.min(date)) %&gt;% select(date)
+
+bln_ctgy &lt;- ifrs9_part3 %&gt;%  
+  mutate(ctgy = case_when(
+    wof != 0     &amp; poci == &quot;N&quot; ~ 3,                                                     #1
+    wof != 0     &amp; poci == &quot;Y&quot; ~ 5,
+    wof != 0     &amp; is.na(poci) ~ 3,
+    stage == 1   &amp; poci == &quot;N&quot; ~ 1,
+    stage == 2   &amp; poci == &quot;N&quot; ~ 2,
+    stage == 3   &amp; poci == &quot;N&quot; ~ 3,
+    is.na(stage) &amp; poci == &quot;N&quot; ~ 1,
+    stage == 1   &amp; poci == &quot;Y&quot; ~ 4,
+    stage == 2   &amp; poci == &quot;Y&quot; ~ 4,
+    stage == 3   &amp; poci == &quot;Y&quot; ~ 5,
+    is.na(stage) &amp; poci == &quot;Y&quot; ~ 4,
+    stage == 1   &amp; is.na(poci) ~ 1,
+    stage == 2   &amp; is.na(poci) ~ 2,
+    stage == 3   &amp; is.na(poci) ~ 3)
+  ) %&gt;% 
+  group_by(cust) %&gt;% fill(ctgy) %&gt;% replace_na(list(ctgy = 1)) %&gt;%                      #2
+  mutate(gca.op = lag(gca),                                                             #3        
+         bal.op = lag(bal),
+         bal.pr = if_else(date == which.min(date), bal, 0),
+         ecl.op = lag(ecl),
+         ctgy.op = lag(ctgy)) %&gt;% 
+  fill(bal.pr) %&gt;% 
+  rename(gca.cl = gca,                                                                  #4
+         bal.cl = bal, 
+         ecl.cl = ecl,
+         ctgy.cl = ctgy, 
+         wof.cl = wof
+         ) %&gt;%                                            
+  mutate(bal.y     = bal.cl - bal.pr + cumsum(wof.cl),                                  #5
+         bal.y.dd  = if_else(bal.y &gt; 0, bal.y, 0),
+         bal.y.rd  = if_else(bal.y &lt; 0, bal.y, 0)) %&gt;% 
+  ungroup()
+
+
+#=========================================================================================
+#==    Create movement attributes                                                       ==
+#=========================================================================================
+
+bln_mvnt &lt;- bln_ctgy %&gt;% group_by(cust) %&gt;% 
+  mutate(cover.cl     = -ecl.cl / bal.cl,
+         cover.op     = -ecl.op / bal.op,
+         cover        = Winsorize(round(if_else(is.nan(cover.op),cover.cl, cover.op), 5), 
+                                  minval = 0, maxval = 1),
+         incr.decr    = case_when(bal.cl &gt; bal.op ~ &#39;incr&#39;,
+                              bal.cl &lt; bal.op ~ &#39;decr&#39;,
+                              TRUE ~ &#39;unch&#39;),
+         ctgy.dir     = case_when(ctgy.cl &gt; ctgy.op ~ &#39;D&#39;,
+                              ctgy.cl &lt; ctgy.op ~ &#39;I&#39;,
+                              TRUE ~ &#39;U&#39;),
+         pre.post     = case_when(ctgy.dir == &#39;I&#39; &amp; incr.decr == &#39;decr&#39; ~ &#39;pre&#39;,
+                              ctgy.dir == &#39;D&#39; &amp; incr.decr == &#39;incr&#39; ~ &#39;pre&#39;,
+                              TRUE ~ &#39;post&#39;),
+         pre.stage    = if_else(pre.post == &#39;pre&#39;, ctgy.op, ctgy.cl),
+         gca.m.dd.r   = if_else(type == &#39;rvlv&#39;, bal.y.dd - lag(bal.y.dd), 0),
+         gca.m.dd.t   = if_else(type == &#39;term&#39; &amp; incr.decr == &#39;incr&#39;, 
+                                bal.cl - bal.op + wof.cl, 0),
+         gca.m.rd.t.f = if_else(type == &#39;term&#39; &amp; incr.decr == &#39;decr&#39; &amp; bal.cl == 0, 
+                                bal.cl - bal.op + wof.cl, 0),
+         gca.m.rd.t   = if_else(type == &#39;term&#39; &amp; incr.decr == &#39;decr&#39; &amp; bal.cl != 0, 
+                                bal.cl - bal.op + wof.cl, 0),
+         gca.m.rd.r   = if_else(type == &#39;rvlv&#39;, bal.y.rd - lag(bal.y.rd), 0),
+         gca.m.oth    = (gca.cl - bal.cl) - (gca.op - bal.op),
+         g.tfr.pre    = gca.op + gca.m.dd.r + gca.m.dd.t + gca.m.rd.t.f + 
+                        gca.m.rd.t + gca.m.rd.r,
+         gca.m.wof    = -wof.cl,
+         gca.m.tfr.o  = -case_when(ctgy.dir != &#39;U&#39; &amp; pre.post == &#39;pre&#39; ~ g.tfr.pre,
+                                   ctgy.dir != &#39;U&#39; &amp; pre.post == &#39;post&#39; ~ gca.op,
+                                   TRUE ~ 0),
+         gca.m.tfr.i  = -gca.m.tfr.o,
+         ecl.m.dd.r   = -cover * gca.m.dd.r,
+         ecl.m.dd.t   = -cover * gca.m.dd.t,
+         ecl.m.rd.t.f = -cover * gca.m.rd.t.f,
+         ecl.m.rd.t   = -cover * gca.m.rd.t,
+         ecl.m.rd.r   = -cover * gca.m.rd.r,
+         ecl.m.wof    = wof.cl,
+         ecl.m.prm    = case_when(ctgy.cl == 1 &amp; pryr != 0 ~ ecl.cl + pryr,
+                                  ctgy.cl != 1 &amp; prlt != 0 ~ ecl.cl + prlt,
+                                  TRUE ~ 0),
+         ecl.m.rem.mig= if_else(ctgy.dir != &#39;U&#39;, ecl.cl - ecl.op - ecl.m.dd.r - 
+                                                 ecl.m.dd.t - ecl.m.rd.t.f - 
+                                                 ecl.m.rd.t - ecl.m.rd.r - 
+                                                 ecl.m.wof - ecl.m.prm, 0),
+         ecl.m.rem    = if_else(ctgy.dir == &#39;U&#39;, ecl.cl - ecl.op - ecl.m.dd.r - 
+                                                 ecl.m.dd.t - ecl.m.rd.t.f - 
+                                                 ecl.m.rd.t - ecl.m.rd.r - 
+                                                 ecl.m.wof - ecl.m.prm, 0),
+         ecl.tfr.pre  = ecl.op + ecl.m.dd.r + ecl.m.dd.t + 
+                        ecl.m.rd.t.f + ecl.m.rd.t + ecl.m.rd.r,
+         ecl.m.tfr.o  = -case_when(ctgy.dir != &#39;U&#39; &amp; pre.post == &#39;pre&#39; ~ ecl.tfr.pre,
+                                   ctgy.dir != &#39;U&#39; &amp; pre.post == &#39;post&#39; ~ ecl.op,
+                                   TRUE ~ 0),
+         ecl.m.tfr.i = -ecl.m.tfr.o) %&gt;% ungroup() %&gt;% 
+  select(-g.tfr.pre, -ecl.tfr.pre) %&gt;% 
+  mutate_at(vars(starts_with(&quot;g.&quot;)), list(~replace_na(., 0))) %&gt;%  
+  mutate_at(vars(starts_with(&quot;i.&quot;)), list(~replace_na(., 0))) %&gt;%
+  mutate(gca.ch  = gca.op + rowSums(select(., contains(&quot;gca.&quot;))) - gca.cl,
+         ecl.ch  = ecl.op + rowSums(select(., contains(&quot;ecl.&quot;))) - ecl.cl)
+
+
+#=========================================================================================
+#==     Gather to long table  &amp; apply pre / post rules                                  ==
+#=========================================================================================
+
+bln_mvnt_long &lt;- bln_mvnt %&gt;% 
+  select(date, cust, ctgy.cl, ctgy.op, pre.post, gca.cl, 
+         ecl.cl, gca.op, ecl.op, gca.m.dd.r:ecl.m.tfr.i) %&gt;% 
+  gather(key = &quot;m.ment&quot;, value = &quot;tran_ccy&quot;, gca.cl:ecl.m.tfr.i) %&gt;% 
+  arrange(cust, m.ment, date) %&gt;% filter(tran_ccy != 0) %&gt;% 
+  mutate(bal.type = str_sub(m.ment, 0, 3),
+         m.type   = str_sub(m.ment, 5)) %&gt;% 
+  mutate(ctgy = case_when(m.type == &quot;op&quot; |
+                          m.type == &quot;m.tfr.o&quot; |
+                          m.type == &quot;m.dd.r&quot;   &amp; pre.post == &quot;pre&quot; |
+                          m.type == &quot;m.dd.t&quot;   &amp; pre.post == &quot;pre&quot; |
+                          m.type == &quot;m.rd.t.f&quot; &amp; pre.post == &quot;pre&quot; |
+                          m.type == &quot;m.rd.t&quot;   &amp; pre.post == &quot;pre&quot; |
+                          m.type == &quot;m.rd.r&quot;   &amp; pre.post == &quot;pre&quot; ~
+                          ctgy.op,
+                          TRUE ~ ctgy.cl), 
+         m.type = if_else(str_detect(m.type, &quot;tfr&quot;), 
+                          paste(&quot;tfr&quot;, ctgy.op, ctgy.cl, sep = &quot;.&quot;), 
+                          m.type),
+         year = year(date),
+         month = month(date)) %&gt;% 
+  select(date, year, month, cust, ctgy.op, ctgy.cl, ctgy, bal.type, m.type, tran_ccy) %&gt;% 
+  arrange(cust, date, bal.type)
+
+# TO DO: unsure no duplicates over account/company/month
+
+# Save for Tableau
+#saveRDS(as.data.frame(bln_mvnt_long), file = &quot;bln_mvnt_long.rda&quot;)
+#write.csv(bln_mvnt_long, file = &quot;bln_mvnt_long.csv&quot;)</code></pre>
+<pre class="r"><code>report &lt;- bln_mvnt_long %&gt;% 
+  filter(
+    cust == &quot;ORCL&quot;,
+    date == &quot;2017-06-30&quot;
+    ) %&gt;% 
+  select(
+    -date:-ctgy.cl
+    ) %&gt;% 
+  pivot_wider(
+    names_from = c(bal.type, ctgy),
+    values_from = tran_ccy
+    ) </code></pre>
