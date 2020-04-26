@@ -1,7 +1,7 @@
 ---
 title: IFRS9 disclosures (part 3)
 author: Brent Morrison
-date: '2020-01-18'
+date: '2020-04-26'
 slug: ifrs9-disclosures-part-3
 categories:
   - Accounting
@@ -12,11 +12,15 @@ description: ''
 topics: []
 ---
 
+---- FURTHER WORK TO DO ON THIS ONE -----
+
 So we continue on our IFRS9 disclosures quest!  
 
-[Part 2](https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/) had us doing some heavy data munging, followed by modeling to get an ECL balance.  
+[Part 2](https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/) had us doing some heavy data munging, followed by modeling to estimate an ECL balance.  
 
-In this post we will massage this dataset into the report we set out to build in the first post.
+In this post we will massage the dataset from part 2 into the report we specified in the first post.  This report sets out an opening to closing balance of the loan and expected credit loss balance.
+
+Before we get started, by way of background, the loan data for our purposes is the debt of the top 1,000 US companies by market capitalisation.  All is explained [here](https://brentmorrison.netlify.app/post/ifrs9-disclosures/).
 
 ```{r opts, include=FALSE}
 knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25)
@@ -27,11 +31,13 @@ library("tidyverse")
 library("DescTools")
 library("lubridate")
 library("tibbletime")
-library("scales")
+#library("scales")
 library("kableExtra")
 library("DT")
 library("widgetframe")
 library("htmltools")
+library("googledrive")
+library("googlesheets4")
 ```
 
 The obvious starting point is to grab the data from part 2.  This data was saved as both a `feather` and `rds` file.  These are online in the blogs repo [here](https://github.com/Brent-Morrison/hugo_website/tree/master/content/post).  I'm going to load the local copy for now. 
@@ -40,16 +46,16 @@ The obvious starting point is to grab the data from part 2.  This data was saved
 ifrs9_part2 <- readRDS(file = "ifrs9_part2.Rds")
 ```
 
-Below I transform attribute names to a format based on a separate implementation of this dataflow.  Additional attributes have been generated here:  
-  * Currency `ccy`, the (imaginary) currency of the loan  
-  * Type `type`, this assigns a stock (a customer of our bank) as either revolving or term.  A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once  
-  * "Purchased or originated financial asset(s) that are credit-impaired on initial recognition", I won't go into that mouthful here. Just know that it is a required classification  
-  * The ledger balance of the loan `bal`. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred  
+Below I transform attribute names to a format based on a [separate implementation](https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R) of this dataflow.  To take advantage of this work I also need to create some additional attributes:  
+  * `ccy`, the currency of the loan.  Our original data is denominated in USD. This data has been mocked up to show how foreign currency balances can be modeled   
+  * `type`, this assigns a stock (a customer of our bank) as either revolving or term.  A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once.  This data has been mocked up and is included as the opening to closing reconciliation is prepared differently for these categories    
+  * `poci`, "Purchased or originated financial asset(s) that are credit-impaired on initial recognition". I won't go into that mouthful here. Just know that it is a specific classification that needs to be disclosed  
+  * `bal`, the ledger balance of the loan. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred  
   * `wof`, write-offs  
   * `pryr`, prior year balance for stage 1 loans assuming no model input changes   
   * `prlt`, prior year balance for stage 2 and 3 loans assuming no model input changes  
 
-This task has been worked on separately [here](https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R). To take advantage of this work I need to rename variables.
+The last two attributes relate to the requirement to disclose the change in an expected credit loss as a result of changes in model inputs or model structure.
 
 ```{r transform}
 ifrs9_part3 <- ifrs9_part2 %>% 
@@ -73,27 +79,20 @@ ifrs9_part3 <- ifrs9_part2 %>%
     prlt = 0
   ) %>% 
   select(-me.date)
+
+# Sample output
+head(ifrs9_part3, 50) %>% datatable()
 ```
 
 Here we go with the mother of all transforms....
 
-```{r create_tables_1}
-#=========================================================================================
-#==    Create stage attributes & movement balances                                      ==
-#==    1. assign disclosure stage (1 / 2 / 3 / 4=POCI_NCI / 5=POCICI)                   ==
-#==    2. fill stage with preceding value (ignores initial na's)                        ==
-#==       & default remaining na's to stage 1                                           ==
-#==    3. create lagged values of balances and prior period balance                     ==
-#==    4. rename closing balance attributes                                             ==
-#==    5. add cumulative movement                                                       ==
-#==    TO DO - add FINREP change of stage indicator for table 12.1                      ==
-#=========================================================================================
-
+```{r wides_1}
 #min.date <- ifrs9_part3 %>% slice(which.min(date)) %>% select(date)
 
-bln_ctgy <- ifrs9_part3 %>%  
+ifrs9_wide1 <- ifrs9_part3 %>%  
+  # Assign disclosure stage (1 / 2 / 3 / 4=POCI_NCI / 5=POCICI)
   mutate(ctgy = case_when(
-    wof != 0     & poci == "N" ~ 3,                                                     #1
+    wof != 0     & poci == "N" ~ 3,
     wof != 0     & poci == "Y" ~ 5,
     wof != 0     & is.na(poci) ~ 3,
     stage == 1   & poci == "N" ~ 1,
@@ -108,30 +107,37 @@ bln_ctgy <- ifrs9_part3 %>%
     stage == 2   & is.na(poci) ~ 2,
     stage == 3   & is.na(poci) ~ 3)
   ) %>% 
-  group_by(cust) %>% fill(ctgy) %>% replace_na(list(ctgy = 1)) %>%                      #2
-  mutate(gca.op = lag(gca),                                                             #3        
+  # Fill stage with preceding value (ignores initial na's) & default 
+  # remaining na's to stage 1
+  group_by(cust) %>% fill(ctgy) %>% replace_na(list(ctgy = 1)) %>%                      
+  # Create lagged values of balances and prior period balance
+  mutate(gca.op = lag(gca),     
          bal.op = lag(bal),
          bal.pr = if_else(date == which.min(date), bal, 0),
          ecl.op = lag(ecl),
          ctgy.op = lag(ctgy)) %>% 
   fill(bal.pr) %>% 
-  rename(gca.cl = gca,                                                                  #4
+  # Rename closing balance attributes
+  rename(gca.cl = gca,
          bal.cl = bal, 
          ecl.cl = ecl,
          ctgy.cl = ctgy, 
          wof.cl = wof
          ) %>%                                            
-  mutate(bal.y     = bal.cl - bal.pr + cumsum(wof.cl),                                  #5
+  # Add cumulative movement
+  mutate(bal.y     = bal.cl - bal.pr + cumsum(wof.cl),
          bal.y.dd  = if_else(bal.y > 0, bal.y, 0),
          bal.y.rd  = if_else(bal.y < 0, bal.y, 0)) %>% 
   ungroup()
+```
 
-
+Below we create the movement attributes
+```{r wides_2}
 #=========================================================================================
 #==    Create movement attributes                                                       ==
 #=========================================================================================
 
-bln_mvnt <- bln_ctgy %>% group_by(cust) %>% 
+ifrs9_wide2 <- ifrs9_wide1 %>% group_by(cust) %>% 
   mutate(cover.cl     = -ecl.cl / bal.cl,
          cover.op     = -ecl.op / bal.op,
          cover        = Winsorize(round(if_else(is.nan(cover.op),cover.cl, cover.op), 5), 
@@ -186,21 +192,29 @@ bln_mvnt <- bln_ctgy %>% group_by(cust) %>%
                                    TRUE ~ 0),
          ecl.m.tfr.i = -ecl.m.tfr.o) %>% ungroup() %>% 
   select(-g.tfr.pre, -ecl.tfr.pre) %>% 
+  # Replace NA's with zero
   mutate_at(vars(starts_with("g.")), list(~replace_na(., 0))) %>%  
   mutate_at(vars(starts_with("i.")), list(~replace_na(., 0))) %>%
+  # Create balance checks
   mutate(gca.ch  = gca.op + rowSums(select(., contains("gca."))) - gca.cl,
          ecl.ch  = ecl.op + rowSums(select(., contains("ecl."))) - ecl.cl)
+```
 
-
+Select the columns required and gather (or should I say unpivot) from a wide to long format. 
+```{r long_1}
 #=========================================================================================
 #==     Gather to long table  & apply pre / post rules                                  ==
 #=========================================================================================
 
-bln_mvnt_long <- bln_mvnt %>% 
+ifrs9_long1 <- ifrs9_wide2 %>% 
+  # Select the columns we are interested in
   select(date, cust, ctgy.cl, ctgy.op, pre.post, gca.cl, 
          ecl.cl, gca.op, ecl.op, gca.m.dd.r:ecl.m.tfr.i) %>% 
+  # Unpivot
   gather(key = "m.ment", value = "tran_ccy", gca.cl:ecl.m.tfr.i) %>% 
+  # Arrange and remove nil values
   arrange(cust, m.ment, date) %>% filter(tran_ccy != 0) %>% 
+  # Extract the balance type (gca / ecl) from movement type
   mutate(bal.type = str_sub(m.ment, 0, 3),
          m.type   = str_sub(m.ment, 5)) %>% 
   mutate(ctgy = case_when(m.type == "op" |
@@ -223,22 +237,19 @@ bln_mvnt_long <- bln_mvnt %>%
 # TO DO: unsure no duplicates over account/company/month
 
 # Save for Tableau
-#saveRDS(as.data.frame(bln_mvnt_long), file = "bln_mvnt_long.rda")
-#write.csv(bln_mvnt_long, file = "bln_mvnt_long.csv")
+#saveRDS(as.data.frame(ifrs9_long1), file = "ifrs9_long1.rda")
+write.csv(ifrs9_long1, file = "ifrs9_long1.csv")
 ```
 
+Save down for the Tableau [report](https://public.tableau.com/profile/brent.morrison#!/vizhome/IFRS9blogpost/Sheet2).
+```{r googledrive}
+p <- drive_get(as_id('https://drive.google.com/open?id=1HhRerMNzt6ScSiDHVWeyHHL9gR1YPx-f'))
 
-```{r create_tables_2}
-report <- bln_mvnt_long %>% 
-  filter(
-    cust == "ORCL",
-    date == "2017-06-30"
-    ) %>% 
-  select(
-    -date:-ctgy.cl
-    ) %>% 
-  pivot_wider(
-    names_from = c(bal.type, ctgy),
-    values_from = tran_ccy
-    ) 
+drive_upload(
+  media = "C:/Users/brent/Documents/R/hugo_website/content/post/ifrs9_long1.csv",   
+  path = p,
+  name = "ifrs9_long1.csv",
+  type = "spreadsheet",
+  overwrite = TRUE
+  )
 ```

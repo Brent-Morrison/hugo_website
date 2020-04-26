@@ -1,7 +1,7 @@
 ---
 title: IFRS9 disclosures (part 3)
 author: Brent Morrison
-date: '2020-01-18'
+date: '2020-04-26'
 slug: ifrs9-disclosures-part-3
 categories:
   - Accounting
@@ -12,31 +12,44 @@ description: ''
 topics: []
 ---
 
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/jquery/jquery.min.js"></script>
+<link href="/rmarkdown-libs/datatables-css/datatables-crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/datatables-binding/datatables.js"></script>
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.min.css" rel="stylesheet" />
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.extra.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/dt-core/js/jquery.dataTables.min.js"></script>
+<link href="/rmarkdown-libs/crosstalk/css/crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/crosstalk/js/crosstalk.min.js"></script>
 
 
+<p>—- FURTHER WORK TO DO ON THIS ONE —–</p>
 <p>So we continue on our IFRS9 disclosures quest!</p>
-<p><a href="https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/">Part 2</a> had us doing some heavy data munging, followed by modeling to get an ECL balance.</p>
-<p>In this post we will massage this dataset into the report we set out to build in the first post.</p>
+<p><a href="https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/">Part 2</a> had us doing some heavy data munging, followed by modeling to estimate an ECL balance.</p>
+<p>In this post we will massage the dataset from part 2 into the report we specified in the first post. This report sets out an opening to closing balance of the loan and expected credit loss balance.</p>
+<p>Before we get started, by way of background, the loan data for our purposes is the debt of the top 1,000 US companies by market capitalisation. All is explained <a href="https://brentmorrison.netlify.app/post/ifrs9-disclosures/">here</a>.</p>
 <pre class="r"><code>library(&quot;tidyverse&quot;)
 library(&quot;DescTools&quot;)
 library(&quot;lubridate&quot;)
 library(&quot;tibbletime&quot;)
-library(&quot;scales&quot;)
+#library(&quot;scales&quot;)
 library(&quot;kableExtra&quot;)
 library(&quot;DT&quot;)
 library(&quot;widgetframe&quot;)
-library(&quot;htmltools&quot;)</code></pre>
+library(&quot;htmltools&quot;)
+library(&quot;googledrive&quot;)
+library(&quot;googlesheets4&quot;)</code></pre>
 <p>The obvious starting point is to grab the data from part 2. This data was saved as both a <code>feather</code> and <code>rds</code> file. These are online in the blogs repo <a href="https://github.com/Brent-Morrison/hugo_website/tree/master/content/post">here</a>. I’m going to load the local copy for now.</p>
 <pre class="r"><code>ifrs9_part2 &lt;- readRDS(file = &quot;ifrs9_part2.Rds&quot;)</code></pre>
-<p>Below I transform attribute names to a format based on a separate implementation of this dataflow. Additional attributes have been generated here:<br />
-* Currency <code>ccy</code>, the (imaginary) currency of the loan<br />
-* Type <code>type</code>, this assigns a stock (a customer of our bank) as either revolving or term. A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once<br />
-* “Purchased or originated financial asset(s) that are credit-impaired on initial recognition”, I won’t go into that mouthful here. Just know that it is a required classification<br />
-* The ledger balance of the loan <code>bal</code>. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred<br />
+<p>Below I transform attribute names to a format based on a <a href="https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R">separate implementation</a> of this dataflow. To take advantage of this work I also need to create some additional attributes:<br />
+* <code>ccy</code>, the currency of the loan. Our original data is denominated in USD. This data has been mocked up to show how foreign currency balances can be modeled<br />
+* <code>type</code>, this assigns a stock (a customer of our bank) as either revolving or term. A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once. This data has been mocked up and is included as the opening to closing reconciliation is prepared differently for these categories<br />
+* <code>poci</code>, “Purchased or originated financial asset(s) that are credit-impaired on initial recognition”. I won’t go into that mouthful here. Just know that it is a specific classification that needs to be disclosed<br />
+* <code>bal</code>, the ledger balance of the loan. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred<br />
 * <code>wof</code>, write-offs<br />
 * <code>pryr</code>, prior year balance for stage 1 loans assuming no model input changes<br />
 * <code>prlt</code>, prior year balance for stage 2 and 3 loans assuming no model input changes</p>
-<p>This task has been worked on separately <a href="https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R">here</a>. To take advantage of this work I need to rename variables.</p>
+<p>The last two attributes relate to the requirement to disclose the change in an expected credit loss as a result of changes in model inputs or model structure.</p>
 <pre class="r"><code>ifrs9_part3 &lt;- ifrs9_part2 %&gt;% 
   rename(
     cust = Ticker,
@@ -57,24 +70,19 @@ library(&quot;htmltools&quot;)</code></pre>
     pryr = 0,
     prlt = 0
   ) %&gt;% 
-  select(-me.date)</code></pre>
+  select(-me.date)
+
+# Sample output
+head(ifrs9_part3, 50) %&gt;% datatable()</code></pre>
+<div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","data":[["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15","16","17","18","19","20","21","22","23","24","25","26","27","28","29","30","31","32","33","34","35","36","37","38","39","40","41","42","43","44","45","46","47","48","49","50"],["A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","A","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL","AAL"],["rev.vol_oa.ta_td.ta_da.ta","np.ta_td.ta_nca.ta_rev.vol","np.ta_td.ta_nca.ta_rev.vol","np.ta_td.ta_nca.ta_rev.vol","np.ta_td.ta_nca.ta_rev.vol","np.ta_td.ta_nca.ta_rev.vol","np.ta_td.ta_nca.ta_rev.vol","oa.ta_nca.ta_td.ta_rev.vol","oa.ta_nca.ta_td.ta_rev.vol","oa.ta_nca.ta_td.ta_rev.vol","oa.ta_nca.ta_td.ta_rev.vol","oa.ta_nca.ta_td.ta_rev.vol","oa.ta_nca.ta_td.ta_rev.vol","oa.ta_np.ta_da.ta_rev.vol","oa.ta_np.ta_da.ta_rev.vol","oa.ta_np.ta_da.ta_rev.vol","oa.ta_np.ta_da.ta_rev.vol","oa.ta_np.ta_da.ta_rev.vol","oa.ta_np.ta_da.ta_rev.vol","oa.ta_nca.ta_rev.vol_da.ta","oa.ta_nca.ta_rev.vol_da.ta","oa.ta_nca.ta_rev.vol_da.ta","oa.ta_nca.ta_rev.vol_da.ta","oa.ta_nca.ta_rev.vol_da.ta","oa.ta_nca.ta_rev.vol_da.ta","nca.ta_ncl.ta_oa.ta_rev.ta","nca.ta_ncl.ta_oa.ta_rev.ta","nca.ta_ncl.ta_oa.ta_rev.ta","nca.ta_ncl.ta_oa.ta_rev.ta","nca.ta_ncl.ta_oa.ta_rev.ta","nca.ta_ncl.ta_oa.ta_rev.ta","nca.ta_ncl.ta_oa.ta_rev.ta","rev.ta_np.ta_nca.ta_rev.vol","rev.ta_np.ta_nca.ta_rev.vol","rev.ta_np.ta_nca.ta_rev.vol","rev.ta_np.ta_nca.ta_rev.vol","rev.ta_np.ta_nca.ta_rev.vol","rev.ta_np.ta_nca.ta_rev.vol","td.ta_ncl.ta_nca.ta_rev.vol","td.ta_ncl.ta_nca.ta_rev.vol","td.ta_ncl.ta_nca.ta_rev.vol","td.ta_ncl.ta_nca.ta_rev.vol","td.ta_ncl.ta_nca.ta_rev.vol","td.ta_ncl.ta_nca.ta_rev.vol","nca.ta_ncl.ta_rev.ta_oa.ta","nca.ta_ncl.ta_rev.ta_oa.ta","nca.ta_ncl.ta_rev.ta_oa.ta","nca.ta_ncl.ta_rev.ta_oa.ta","nca.ta_ncl.ta_rev.ta_oa.ta","nca.ta_ncl.ta_rev.ta_oa.ta"],[1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,2,3,3,3,3,3,3,3,2,2,3,3,2,2,3,3,3,3,3,2,2,2,2,2,2],[1887,1887,1887,2043,2043,2043,2081,2081,2081,2081,2081,2081,2011,2011,2011,2145,2145,2115,2115,2115,1799,1799,1799,1799,1799,23343,23343,24344,24344,24543,24543,24543,24859,24859,24859,24684,24684,24684,24684,25065,25065,24739,24739,24739,24076,24076,24076,24076,24076,24076],[-11.6911956521739,-32.8522292993631,-34.3090909090911,-38.3198193411265,-33.5078025477707,-37.9013213530658,-27.5848356309651,-10.0484423676012,-11.3097826086956,-10.7507528556594,-10.9554719917012,-10.5339876033058,-7.50995850622406,-7.57215676229507,-10.4354038854806,-7.98318788501026,-8.40637807377048,-34.6032110091741,-34.3119242579325,-28.44675,-5.6050598205384,-5.40240240240241,-6.21276276276278,-6.21276276276278,-6.21276276276278,-5480.53043478268,-8256.78089171975,-9068.52600422842,-9137.40786397428,-9066.84076433121,-9225.67737843561,-9098.86829268274,-5986.29501557627,-5790.13975155287,-5916.59688473515,-8408.9477178423,-6081.74999999997,-5891.89668049791,-5918.09016393436,-9492.92024539886,-9470.14373716623,-9317.68073770482,-9260.10275229372,-9267.62947799389,-1203.8,-1226.60378863409,-1289.35535535534,-1214.64504504503,-1214.64504504503,-1214.64504504503],["2016-12-31","2017-01-31","2017-02-28","2017-03-31","2017-04-30","2017-05-31","2017-06-30","2017-07-31","2017-08-31","2017-09-30","2017-10-31","2017-11-30","2017-12-31","2018-01-31","2018-02-28","2018-03-31","2018-04-30","2018-05-31","2018-06-30","2018-07-31","2018-08-31","2018-09-30","2018-10-31","2018-11-30","2018-12-31","2016-12-31","2017-01-31","2017-02-28","2017-03-31","2017-04-30","2017-05-31","2017-06-30","2017-07-31","2017-08-31","2017-09-30","2017-10-31","2017-11-30","2017-12-31","2018-01-31","2018-02-28","2018-03-31","2018-04-30","2018-05-31","2018-06-30","2018-07-31","2018-08-31","2018-09-30","2018-10-31","2018-11-30","2018-12-31"],["USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD","USD"],["term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term","term"],["N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N","N"],[1887,1887,1887,2043,2043,2043,2081,2081,2081,2081,2081,2081,2011,2011,2011,2145,2145,2115,2115,2115,1799,1799,1799,1799,1799,23343,23343,24344,24344,24543,24543,24543,24859,24859,24859,24684,24684,24684,24684,25065,25065,24739,24739,24739,24076,24076,24076,24076,24076,24076],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>cust<\/th>\n      <th>unit<\/th>\n      <th>stage<\/th>\n      <th>gca<\/th>\n      <th>ecl<\/th>\n      <th>date<\/th>\n      <th>ccy<\/th>\n      <th>type<\/th>\n      <th>poci<\/th>\n      <th>bal<\/th>\n      <th>wof<\/th>\n      <th>pryr<\/th>\n      <th>prlt<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"columnDefs":[{"className":"dt-right","targets":[3,4,5,10,11,12,13]},{"orderable":false,"targets":0}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
 <p>Here we go with the mother of all transforms….</p>
-<pre class="r"><code>#=========================================================================================
-#==    Create stage attributes &amp; movement balances                                      ==
-#==    1. assign disclosure stage (1 / 2 / 3 / 4=POCI_NCI / 5=POCICI)                   ==
-#==    2. fill stage with preceding value (ignores initial na&#39;s)                        ==
-#==       &amp; default remaining na&#39;s to stage 1                                           ==
-#==    3. create lagged values of balances and prior period balance                     ==
-#==    4. rename closing balance attributes                                             ==
-#==    5. add cumulative movement                                                       ==
-#==    TO DO - add FINREP change of stage indicator for table 12.1                      ==
-#=========================================================================================
+<pre class="r"><code>#min.date &lt;- ifrs9_part3 %&gt;% slice(which.min(date)) %&gt;% select(date)
 
-#min.date &lt;- ifrs9_part3 %&gt;% slice(which.min(date)) %&gt;% select(date)
-
-bln_ctgy &lt;- ifrs9_part3 %&gt;%  
+ifrs9_wide1 &lt;- ifrs9_part3 %&gt;%  
+  # Assign disclosure stage (1 / 2 / 3 / 4=POCI_NCI / 5=POCICI)
   mutate(ctgy = case_when(
-    wof != 0     &amp; poci == &quot;N&quot; ~ 3,                                                     #1
+    wof != 0     &amp; poci == &quot;N&quot; ~ 3,
     wof != 0     &amp; poci == &quot;Y&quot; ~ 5,
     wof != 0     &amp; is.na(poci) ~ 3,
     stage == 1   &amp; poci == &quot;N&quot; ~ 1,
@@ -89,30 +97,34 @@ bln_ctgy &lt;- ifrs9_part3 %&gt;%
     stage == 2   &amp; is.na(poci) ~ 2,
     stage == 3   &amp; is.na(poci) ~ 3)
   ) %&gt;% 
-  group_by(cust) %&gt;% fill(ctgy) %&gt;% replace_na(list(ctgy = 1)) %&gt;%                      #2
-  mutate(gca.op = lag(gca),                                                             #3        
+  # Fill stage with preceding value (ignores initial na&#39;s) &amp; default 
+  # remaining na&#39;s to stage 1
+  group_by(cust) %&gt;% fill(ctgy) %&gt;% replace_na(list(ctgy = 1)) %&gt;%                      
+  # Create lagged values of balances and prior period balance
+  mutate(gca.op = lag(gca),     
          bal.op = lag(bal),
          bal.pr = if_else(date == which.min(date), bal, 0),
          ecl.op = lag(ecl),
          ctgy.op = lag(ctgy)) %&gt;% 
   fill(bal.pr) %&gt;% 
-  rename(gca.cl = gca,                                                                  #4
+  # Rename closing balance attributes
+  rename(gca.cl = gca,
          bal.cl = bal, 
          ecl.cl = ecl,
          ctgy.cl = ctgy, 
          wof.cl = wof
          ) %&gt;%                                            
-  mutate(bal.y     = bal.cl - bal.pr + cumsum(wof.cl),                                  #5
+  # Add cumulative movement
+  mutate(bal.y     = bal.cl - bal.pr + cumsum(wof.cl),
          bal.y.dd  = if_else(bal.y &gt; 0, bal.y, 0),
          bal.y.rd  = if_else(bal.y &lt; 0, bal.y, 0)) %&gt;% 
-  ungroup()
-
-
-#=========================================================================================
+  ungroup()</code></pre>
+<p>Below we create the movement attributes</p>
+<pre class="r"><code>#=========================================================================================
 #==    Create movement attributes                                                       ==
 #=========================================================================================
 
-bln_mvnt &lt;- bln_ctgy %&gt;% group_by(cust) %&gt;% 
+ifrs9_wide2 &lt;- ifrs9_wide1 %&gt;% group_by(cust) %&gt;% 
   mutate(cover.cl     = -ecl.cl / bal.cl,
          cover.op     = -ecl.op / bal.op,
          cover        = Winsorize(round(if_else(is.nan(cover.op),cover.cl, cover.op), 5), 
@@ -167,21 +179,26 @@ bln_mvnt &lt;- bln_ctgy %&gt;% group_by(cust) %&gt;%
                                    TRUE ~ 0),
          ecl.m.tfr.i = -ecl.m.tfr.o) %&gt;% ungroup() %&gt;% 
   select(-g.tfr.pre, -ecl.tfr.pre) %&gt;% 
+  # Replace NA&#39;s with zero
   mutate_at(vars(starts_with(&quot;g.&quot;)), list(~replace_na(., 0))) %&gt;%  
   mutate_at(vars(starts_with(&quot;i.&quot;)), list(~replace_na(., 0))) %&gt;%
+  # Create balance checks
   mutate(gca.ch  = gca.op + rowSums(select(., contains(&quot;gca.&quot;))) - gca.cl,
-         ecl.ch  = ecl.op + rowSums(select(., contains(&quot;ecl.&quot;))) - ecl.cl)
-
-
-#=========================================================================================
+         ecl.ch  = ecl.op + rowSums(select(., contains(&quot;ecl.&quot;))) - ecl.cl)</code></pre>
+<p>Select the columns required and gather (or should I say unpivot) from a wide to long format.</p>
+<pre class="r"><code>#=========================================================================================
 #==     Gather to long table  &amp; apply pre / post rules                                  ==
 #=========================================================================================
 
-bln_mvnt_long &lt;- bln_mvnt %&gt;% 
+ifrs9_long1 &lt;- ifrs9_wide2 %&gt;% 
+  # Select the columns we are interested in
   select(date, cust, ctgy.cl, ctgy.op, pre.post, gca.cl, 
          ecl.cl, gca.op, ecl.op, gca.m.dd.r:ecl.m.tfr.i) %&gt;% 
+  # Unpivot
   gather(key = &quot;m.ment&quot;, value = &quot;tran_ccy&quot;, gca.cl:ecl.m.tfr.i) %&gt;% 
+  # Arrange and remove nil values
   arrange(cust, m.ment, date) %&gt;% filter(tran_ccy != 0) %&gt;% 
+  # Extract the balance type (gca / ecl) from movement type
   mutate(bal.type = str_sub(m.ment, 0, 3),
          m.type   = str_sub(m.ment, 5)) %&gt;% 
   mutate(ctgy = case_when(m.type == &quot;op&quot; |
@@ -204,17 +221,19 @@ bln_mvnt_long &lt;- bln_mvnt %&gt;%
 # TO DO: unsure no duplicates over account/company/month
 
 # Save for Tableau
-#saveRDS(as.data.frame(bln_mvnt_long), file = &quot;bln_mvnt_long.rda&quot;)
-#write.csv(bln_mvnt_long, file = &quot;bln_mvnt_long.csv&quot;)</code></pre>
-<pre class="r"><code>report &lt;- bln_mvnt_long %&gt;% 
-  filter(
-    cust == &quot;ORCL&quot;,
-    date == &quot;2017-06-30&quot;
-    ) %&gt;% 
-  select(
-    -date:-ctgy.cl
-    ) %&gt;% 
-  pivot_wider(
-    names_from = c(bal.type, ctgy),
-    values_from = tran_ccy
-    ) </code></pre>
+#saveRDS(as.data.frame(ifrs9_long1), file = &quot;ifrs9_long1.rda&quot;)
+write.csv(ifrs9_long1, file = &quot;ifrs9_long1.csv&quot;)</code></pre>
+<p>Save down for the Tableau <a href="https://public.tableau.com/profile/brent.morrison#!/vizhome/IFRS9blogpost/Sheet2">report</a>.</p>
+<pre class="r"><code>p &lt;- drive_get(as_id(&#39;https://drive.google.com/open?id=1HhRerMNzt6ScSiDHVWeyHHL9gR1YPx-f&#39;))</code></pre>
+<pre><code>## Using an auto-discovered, cached token.
+## To suppress this message, modify your code or options to clearly consent to the use of a cached token.
+## See gargle&#39;s &quot;Non-interactive auth&quot; vignette for more details:
+## https://gargle.r-lib.org/articles/non-interactive-auth.html
+## The googledrive package is using a cached token for brentjohnmorrison@hotmail.com.</code></pre>
+<pre class="r"><code>drive_upload(
+  media = &quot;C:/Users/brent/Documents/R/hugo_website/content/post/ifrs9_long1.csv&quot;,   
+  path = p,
+  name = &quot;ifrs9_long1.csv&quot;,
+  type = &quot;spreadsheet&quot;,
+  overwrite = TRUE
+  )</code></pre>
