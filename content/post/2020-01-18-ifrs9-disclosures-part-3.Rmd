@@ -12,27 +12,23 @@ description: ''
 topics: []
 ---
 
----- FURTHER WORK TO DO ON THIS ONE -----
-
-So we continue on our IFRS9 disclosures quest!  
+We continue on our IFRS9 disclosures quest!  
 
 [Part 2](https://brentmorrison.netlify.app/post/ifrs9-disclosures-part-2/) had us doing some heavy data munging, followed by modeling to estimate an ECL balance.  
 
-In this post we will massage the dataset from part 2 into the report we specified in the first post.  This report sets out an opening to closing balance of the loan and expected credit loss balance.
+In this post we will massage the dataset from part 2 and prepare the report we specified in the first post.  This report sets out an opening to closing balance of the loan and expected credit loss balances, and also details transfers between risk stages.  The report will prepared in Tableau.  There remains a significant amount of transformation required before the data can be ingested by Tableau however.
 
-Before we get started, by way of background, the loan data for our purposes is the debt of the top 1,000 US companies by market capitalisation.  All is explained [here](https://brentmorrison.netlify.app/post/ifrs9-disclosures/).
+Recall the loan data for our purposes is the debt of the top 1,000 US companies by market capitalisation.  All is explained in the [first](https://brentmorrison.netlify.app/post/ifrs9-disclosures/) post of this series.
 
 ```{r opts, include=FALSE}
 knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, fig.width=8.25, fig.height=8.25)
 ```
-
+As usual we start loading the required packages.
 ```{r packages}
 library("tidyverse")
 library("DescTools")
 library("lubridate")
 library("tibbletime")
-#library("scales")
-library("kableExtra")
 library("DT")
 library("widgetframe")
 library("htmltools")
@@ -40,24 +36,28 @@ library("googledrive")
 library("googlesheets4")
 ```
 
-The obvious starting point is to grab the data from part 2.  This data was saved as both a `feather` and `rds` file.  These are online in the blogs repo [here](https://github.com/Brent-Morrison/hugo_website/tree/master/content/post).  I'm going to load the local copy for now. 
+### Grabbing the data prepared in part 2.  
+
+This data was saved as both a `feather` and `rds` file.  These are online in the blogs repo [here](https://github.com/Brent-Morrison/hugo_website/tree/master/content/post).  I'm going to load the local copy for now. 
 
 ```{r data}
 ifrs9_part2 <- readRDS(file = "ifrs9_part2.Rds")
 ```
 
+### Initial transformations
+
 Below I transform attribute names to a format based on a [separate implementation](https://github.com/Brent-Morrison/Financial_reporting/blob/master/Fin_reporting.R) of this dataflow.  To take advantage of this work I also need to create some additional attributes:  
-  * `ccy`, the currency of the loan.  Our original data is denominated in USD. This data has been mocked up to show how foreign currency balances can be modeled   
-  * `type`, this assigns a stock (a customer of our bank) as either revolving or term.  A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once.  This data has been mocked up and is included as the opening to closing reconciliation is prepared differently for these categories    
-  * `poci`, "Purchased or originated financial asset(s) that are credit-impaired on initial recognition". I won't go into that mouthful here. Just know that it is a specific classification that needs to be disclosed  
-  * `bal`, the ledger balance of the loan. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred  
-  * `wof`, write-offs  
-  * `pryr`, prior year balance for stage 1 loans assuming no model input changes   
-  * `prlt`, prior year balance for stage 2 and 3 loans assuming no model input changes  
+1.    `ccy`, the currency of the loan.  Our original data is denominated in USD. This data has been mocked up to show how foreign currency balances can be modeled  
+2.    `type`, this assigns a stock (a customer of our bank) as either revolving or term.  A revolving exposure can be repaid and subsequently drawn upon again in contrast to term loans which are drawn down once.  This data has been mocked up and is included as the opening to closing reconciliation is prepared differently for these categories  
+3.    `poci`, "Purchased or originated financial asset(s) that are credit-impaired on initial recognition". I won't go into that mouthful here. Just know that it is a specific classification that needs to be disclosed  
+4.    `bal`, the ledger balance of the loan. This will differ to the gross carrying amount if fees paid or received on orgination have been deferred   
+5.    `wof`, write-offs  
+6.    `pryr`, prior year balance for stage 1 loans assuming no model input changes   
+7.    `prlt`, prior year balance for stage 2 and 3 loans assuming no model input changes  
 
 The last two attributes relate to the requirement to disclose the change in an expected credit loss as a result of changes in model inputs or model structure.
 
-```{r transform}
+```{r transform, fig.width=8.25, fig.height=8.25}
 ifrs9_part3 <- ifrs9_part2 %>% 
   rename(
     cust = Ticker,
@@ -73,7 +73,7 @@ ifrs9_part3 <- ifrs9_part2 %>%
     type = if_else(str_detect(cust, "^R"), "rvlv", "term"),
     poci = if_else(str_detect(cust, "^P") & stage == 3, "Y", "N"),
     bal = gca,
-    ecl = -ecl,
+    ecl = round(-ecl, 1),
     wof = 0,
     pryr = 0,
     prlt = 0
@@ -84,11 +84,15 @@ ifrs9_part3 <- ifrs9_part2 %>%
 head(ifrs9_part3, 50) %>% datatable()
 ```
 
-Here we go with the mother of all transforms....
+### Long to wide format
+
+This next section of code accomplishes a number of transforms:  
+1.    Assigning the disclosure category (the risk stages),  
+2.    Creating lagged values of the loan and ECL balances,and  
+3.    Calculating a cumulative movement on a year to date basis  
+
 
 ```{r wides_1}
-#min.date <- ifrs9_part3 %>% slice(which.min(date)) %>% select(date)
-
 ifrs9_wide1 <- ifrs9_part3 %>%  
   # Assign disclosure stage (1 / 2 / 3 / 4=POCI_NCI / 5=POCICI)
   mutate(ctgy = case_when(
@@ -131,7 +135,12 @@ ifrs9_wide1 <- ifrs9_part3 %>%
   ungroup()
 ```
 
-Below we create the movement attributes
+Below we add attributes to our now "wide" data frame.  These attributes account for the movements in balances from one month to the next. 
+
+For example if a loans balance has decreased, this movement goes into a "repayment" column.  Likewise, on the ECL side, a reduction in the ECL balance is inferred from this loan movement based on the ratio of ECL to the loan balance. 
+
+This logic treats revolving and non-revolving loans differently.
+
 ```{r wides_2}
 #=========================================================================================
 #==    Create movement attributes                                                       ==
@@ -200,7 +209,8 @@ ifrs9_wide2 <- ifrs9_wide1 %>% group_by(cust) %>%
          ecl.ch  = ecl.op + rowSums(select(., contains("ecl."))) - ecl.cl)
 ```
 
-Select the columns required and gather (or should I say unpivot) from a wide to long format. 
+Next, we select the columns required and gather (or should I say unpivot) from a wide to long format. 
+
 ```{r long_1}
 #=========================================================================================
 #==     Gather to long table  & apply pre / post rules                                  ==
@@ -234,17 +244,19 @@ ifrs9_long1 <- ifrs9_wide2 %>%
   select(date, year, month, cust, ctgy.op, ctgy.cl, ctgy, bal.type, m.type, tran_ccy) %>% 
   arrange(cust, date, bal.type)
 
-# TO DO: unsure no duplicates over account/company/month
-
-# Save for Tableau
-#saveRDS(as.data.frame(ifrs9_long1), file = "ifrs9_long1.rda")
+# Save as csv
 write.csv(ifrs9_long1, file = "ifrs9_long1.csv")
 ```
 
-Save down for the Tableau [report](https://public.tableau.com/profile/brent.morrison#!/vizhome/IFRS9blogpost/Sheet2).
-```{r googledrive}
-p <- drive_get(as_id('https://drive.google.com/open?id=1HhRerMNzt6ScSiDHVWeyHHL9gR1YPx-f'))
+### Transformed data
 
+We will present this data in a Tableau public visualisation.  In order to do that, I will save the data to google drive.  Tableau will then fetch this data for display.
+
+```{r googledrive1, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+p <- drive_get(as_id('https://drive.google.com/open?id=1HhRerMNzt6ScSiDHVWeyHHL9gR1YPx-f'))
+```
+
+```{r googledrive2}
 drive_upload(
   media = "C:/Users/brent/Documents/R/hugo_website/content/post/ifrs9_long1.csv",   
   path = p,
@@ -253,3 +265,5 @@ drive_upload(
   overwrite = TRUE
   )
 ```
+
+And here is a [link](https://public.tableau.com/profile/brent.morrison#!/vizhome/IFRS9blogpost/Sheet2) to the end result.
