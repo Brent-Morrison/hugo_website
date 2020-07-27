@@ -1,0 +1,36 @@
+---
+title: Coursera Applied Data Science Capstone
+author: Brent
+date: '2020-07-27'
+slug: coursera-applied-data-science-capstone
+categories:
+  - Python
+tags: []
+description: ''
+topics: []
+---
+
+
+
+<p>Work has initiated a Coursera led training program so it is goodbye to Dataquest for now.</p>
+<p>The “Applied Data Science Capstone” in the <a href="https://www.coursera.org/professional-certificates/ibm-data-science">IBM Specialiation</a> has participants using Foursquare business venue data retrieved via an API to solve a business or other problem.</p>
+<p>I have decided to investigate the utilisation of loans under the Small Business Administration Paycheck Protection Program in the United States.</p>
+<p>What follows is a brief outline of the work and findings.</p>
+<div id="data-and-methodology" class="section level1">
+<h1>Data and methodology</h1>
+<p>The aim is to assess the impact of political persuasion or ideology on the utilisation of government financial assistance.</p>
+<p>Determining if political persuasion influences uptake of loans requires us to do three things:<br />
+1. Quantify loan uptake<br />
+2. Assess political persuasion<br />
+3. Identify and hold other characteristics constant</p>
+<p><strong>Loan uptake</strong> data is published by the US treasury. <strong>Political persuasion</strong> was inferred from electoral data, and the <strong>other characteristics</strong> to control for come from census data (demographic information) and Foursquare business venue data.</p>
+<p>A clustering algorithm was been used to group geographical areas into similar groups using the demographic and business venue data. These clusters are the control groups - similar geograpic areas with respect to demographics.</p>
+<p>The box plots below show the difference in distribution of loan amount over the clusters.</p>
+<p><img src="/ppp_cluster.png" /></p>
+</div>
+<div id="conclusion" class="section level1">
+<h1>Conclusion</h1>
+<p>I ultimately concluded that the results of the analysis themselves were inconclusive. Basically I realised I could not retrieve enough Foursquare data to create a sample size large enough.</p>
+<p>It’s interesting the I probably bit off more than I could chew on this project. A lot of time was spent data munging the various source, playing with json (painfull), and generally getting the workflow to work. The result was that the time availabe for analysis and reporting suffered. Lesson learnt. Keep it simple next time.</p>
+<p>This is going to be only a very short post, all of the analysis and the report are <a href="https://github.com/Brent-Morrison/Coursera_Capstone/blob/master/applied_data_science_capstone_4_5.ipynb">here</a> and <a href="https://github.com/Brent-Morrison/Coursera_Capstone/blob/master/AppliedDataScienceCapstoneProject_report.pdf">here</a>.</p>
+</div>
