@@ -1,0 +1,35 @@
+---
+title: "Intra portfolio correlation"
+author: "Brent Morrison"
+date: '2021-02-06'
+slug: intra-portfolio-correlation
+categories: Stocks
+tags:
+- R
+- Python
+- Stocks
+description: ''
+topics: []
+---
+
+This is a quick post about intra-portfolio correlation.  
+
+Intra-portfolio correlation ("IPC") is defined as a weighted average for all unique pairwise correlations within a portfolio.  It has typically been used to measure a portfolio's diversification.  That's not what I'm interested in however.  I'm looking at IPC as a potential technical trading indicator.   
+
+The idea being that an increase or decrease in the co-movement of a group of stocks (or the market as a whole for that matter) may say something about their future returns.  Fleshing that out a bit more, it would be interesting to see if the momentum or short term reversal effects are influenced by the extent of the IPC (or change in IPC) of the portfolio to which a stock belongs.  
+
+To test that we need data.  
+
+Below are IPC implementations in both R and Python, presented as Google Colab notebooks:  
+
+1.  [R](https://nbviewer.jupyter.org/github/Brent-Morrison/Misc_scripts/blob/master/rolling_ipc_r.ipynb)
+2.  [Python](https://nbviewer.jupyter.org/github/Brent-Morrison/Misc_scripts/blob/master/rolling_ipc_py.ipynb)
+
+Both of these notebooks go into the technical details.  As you would expect Python is ```pandas``` heavy.  I have used the [slider](https://cran.r-project.org/web/packages/slider/vignettes/slider.html) package on the R side.  One particular thing to note is that both of these assume an equal weighted portfolio.
+
+I'll finish with some references on the topic:
+
+- a [critique](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2155136) of IPC as it is used to measure diversification, essentially correlation measures co-movement but ignores variance
+- the [practitioner](https://gravityinvestments.com/docs/investment_advisor_jan2010.pdf) referred to in the above paper
+- a reminder that [correlation](https://web.stanford.edu/class/archive/cs/cs109/cs109.1178/lectureHandouts/150-covariance.pdf) is co-variance normalised by variance
+- [AQR](https://www.aqr.com/Insights/Perspectives/Betting-Against-Correlation) pointing out the relationship between correlation and volatility
