@@ -2,7 +2,12 @@
 .Rhistory
 .RData
 .Ruserdata
-blogdown
+/blogdown
+/blogdown/
 Thumbs.db
 public/
 .httr-oauth
+.httr-oauth
+/public/
+/resources/
+.DS_Store

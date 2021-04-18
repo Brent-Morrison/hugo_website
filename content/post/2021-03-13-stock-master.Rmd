@@ -50,7 +50,7 @@ Let's get started with the data.
 
 Fundamental data is sourced from the **Securities and Exchange Commission** ("SEC") website.  Price data is from the **Alpha Vantage** API.[^2]  
 
-[^2]: For the un-initiated, fundamental data refers to accounting balances recorded in a company's financial statements (the balance sheet, income statement and cash-flows). Price data of course is the traded share price.  
+[^2]: Fundamental data refers to accounting balances recorded in a company's financial statements (the balance sheet, income statement and cash-flows). Price data of course is the traded share price.  
 
 ### Fundamental data  
 
@@ -156,7 +156,7 @@ So that gives a brief outline of how I'm loading data into the acquisition layer
 
 The [repo](https://github.com/Brent-Morrison/Stock_master) has further details on the project.
 
-This post is a little light on visualisation and code.  I'll finish up with a fancy plot of the cross sectional skewness effect for US stocks.  This is taking data directly from the database.
+This post is a little light on visualisation and code.  To showcase the data collected I'll finish up with a couple of plots.  One using the price data and one the fundamental data.  The first looks at the [skewness effect](https://www.nber.org/papers/w14804) and the next, the relation between return on assets and future returns.  These are taking data directly from the database.
 
 ```{r code_chunk_1, echo=FALSE, message=FALSE, warning=FALSE}
 # Libraries  --------------------------------------------------------------------------------------
@@ -164,8 +164,6 @@ library(dplyr)
 library(tidyr)
 library(ggplot2)
 library(scales)
-library(gganimate)
-library(transformr)
 library(lubridate)
 library(DBI)
 library(RPostgres)
@@ -183,77 +181,88 @@ con <- dbConnect(
 
 
 # Retrieve data  ----------------------------------------------------------------------------------
-#sql1 <- "select * from access_layer.fundamental_attributes"
-#qry1 <- dbSendQuery(conn = con, statement = sql1) 
-#df_fndmtl_raw <- dbFetch(qry1)
+sql1 <- "select * from access_layer.fundamental_attributes"
+qry1 <- dbSendQuery(conn = con, statement = sql1) 
+df_fndmtl_raw <- dbFetch(qry1)
 
-sql2 <- "select date_stamp, symbol, skew_ari_120d_dcl, close from access_layer.return_attributes"
+sql2 <- "select date_stamp, symbol, skew_ari_120d_dcl, smax_20d_dcl, close from access_layer.return_attributes"
 qry2 <- dbSendQuery(conn = con, statement = sql2) 
 df_price_raw <- dbFetch(qry2)
 df_price_raw <- arrange(df_price_raw, symbol, date_stamp)
 
+```
 
+```{r code_chunk_2, echo=FALSE, message=FALSE, warning=FALSE}
 # Fundamental ratios  -----------------------------------------------------------------------------
-#fndmtl <- df_fndmtl_raw %>% 
-#  filter(fin_nonfin == 'non_financial') %>% 
-#  group_by(date_stamp) %>% 
-#  slice_min(mkt_cap, n = 100) %>% 
-#  summarise(
-#    assets = sum(total_assets),
-#    cash = sum(cash_equiv_st_invest),
-#    lt_debt = sum(lt_debt),
-#    cash_ratio = cash/assets,
-#    debt_ratio = lt_debt/assets
-#  )
+fndmtl <- df_fndmtl_raw %>% 
+  group_by(ticker) %>% 
+  mutate(
+    fwd_rtn_6m = lead(((close-lag(close, 6))/lag(close, 6)), 6)
+  ) %>% 
+  ungroup() %>% 
+  filter(date_stamp == as.Date('2020-06-30')) %>% 
+  drop_na() %>% 
+  group_by(sector) %>% 
+  mutate(roa_qntl = ntile(roa, 5)) %>% 
+  group_by(roa_qntl) %>% 
+  summarise(
+    fwd_rtn_6m = mean(fwd_rtn_6m, na.rm = TRUE),
+    roa = mean(roa, na.rm = TRUE),
+    n = n()
+  )
 
 
+ggplot(
+  fndmtl, 
+  aes(roa_qntl, fwd_rtn_6m)
+  ) +
+  geom_col() +
+  xlab('') +
+  ylab('') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = 'Return on assets and subsequent returns',
+    subtitle = 'Average subsequent 6 month returns for portfolios formed on quintiles of return on assets. \nQuintile 5 is the highest return on asset portfolio \n\nPortfolios formed at June 2020'
+  )
+```
+
+```{r code_chunk_3, echo=FALSE, message=FALSE, warning=FALSE}
 # Skewness data  ----------------------------------------------------------------------------------
 price <- df_price_raw %>% 
-  filter(date_stamp > as.Date('2011-12-31'), date_stamp <= as.Date('2020-12-31')) %>% 
+  filter(date_stamp > as.Date('2020-06-30'), date_stamp <= as.Date('2020-12-31')) %>% 
   group_by(symbol) %>% 
   mutate(
     fwd_rtn_1m = lead((close-lag(close))/lag(close))
   ) %>% 
-  ungroup() %>% 
+  ungroup() %>%
+  drop_na() %>% 
   mutate(
     skew_ari_120d_qntl = case_when(
-      skew_ari_120d_dcl <= 2 ~ as.integer(1),
-      skew_ari_120d_dcl <= 4 ~ as.integer(2),
-      skew_ari_120d_dcl <= 6 ~ as.integer(3),
-      skew_ari_120d_dcl <= 8 ~ as.integer(4),
-      TRUE                   ~ as.integer(5)
+    skew_ari_120d_dcl <= 2 ~ as.integer(1),
+    skew_ari_120d_dcl <= 4 ~ as.integer(2),
+    skew_ari_120d_dcl <= 6 ~ as.integer(3),
+    skew_ari_120d_dcl <= 8 ~ as.integer(4),
+    TRUE                   ~ as.integer(5)
     )
   ) %>% 
-  group_by(date_stamp) %>% 
-  mutate(fwd_rtn_1m = scale(fwd_rtn_1m, center = TRUE, scale = FALSE)) %>% 
-  group_by(date_stamp, skew_ari_120d_qntl) %>% 
-  summarise(fwd_rtn_1m = mean(fwd_rtn_1m, na.rm = TRUE))
-
-gga <- ggplot(
-  filter(price, date_stamp == as.Date('2019-01-31')),
-  #filter(price, date_stamp >= as.Date('2019-01-31')), 
-  aes(skew_ari_120d_qntl, fwd_rtn_1m)
-  ) +
-  geom_col(aes(group = date_stamp), linetype = 1) +
-  xlab('') +
-  ylab('') +
-  scale_y_continuous(
-    labels = scales::percent_format(accuracy = 1),
-    limits = c(-.08, .08)) +
-#  transition_states(
-#    date_stamp,
-#    transition_length = 60,
-#    state_length = 60
-#    ) +
-#  ease_aes('cubic-in-out') +
-  labs(
-    title = 'Skewness and subsequent returns',
-    subtitle = 'Average subsequent month scaled returns for portfolios formed on quintiles of 120 \nday skewness of daily returns.  Quintile 5 is the highest skewness portfolio \n\nFormation date: {closest_state}'
+  group_by(skew_ari_120d_qntl) %>% 
+  summarise(
+    fwd_rtn_1m = mean(fwd_rtn_1m, na.rm = TRUE),
+    n = n()
   )
 
-gga
-#animate(gga)
-  
+ggplot(
+  price, 
+  aes(skew_ari_120d_qntl, fwd_rtn_1m)
+  ) +
+  geom_col() +
+  xlab('') +
+  ylab('') +
+  scale_y_continuous(labels = scales::percent_format(accuracy = 1)) +
+  labs(
+    title = 'Skewness and subsequent returns',
+    subtitle = 'Average subsequent month scaled returns for portfolios formed on quintiles of 120 \nday skewness of daily returns.  Quintile 5 is the highest skewness portfolio \n\nJune 2020 to December 2020'
+  )
 ```
   
 ## Example scripts and functions
