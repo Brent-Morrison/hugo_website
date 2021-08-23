@@ -1,0 +1,16 @@
+---
+title: "Abalone and Outliers"
+author: "Brent Morrison"
+date: '2021-08-23'
+slug: abalone-and-outliers
+categories: Regression
+tags: 
+- Python
+- Stocks
+description: ''
+topics: []
+---
+
+This one is via a Colab notebook.  
+
+Investigating robust regression, all is explained [here](https://nbviewer.jupyter.org/github/Brent-Morrison/Misc_scripts/blob/master/theil_sen.ipynb).
