@@ -1,0 +1,310 @@
+---
+title: "Analysing Momentum"
+author: "Brent Morrison"
+date: '2021-09-20'
+slug: momentum-analysis
+categories: Stocks
+tags:
+- R
+- Stocks
+description: ''
+topics: []
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/jquery/jquery.min.js"></script>
+<link href="/rmarkdown-libs/datatables-css/datatables-crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/datatables-binding/datatables.js"></script>
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.min.css" rel="stylesheet" />
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.extra.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/dt-core/js/jquery.dataTables.min.js"></script>
+<link href="/rmarkdown-libs/crosstalk/css/crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/crosstalk/js/crosstalk.min.js"></script>
+
+
+<p>This post is going to analyse the <a href="https://quantpedia.com/strategies/momentum-factor-effect-in-stocks/">momentum effect</a> in US stocks using both publicly available aggregate data, and privately collected individual stock level data.</p>
+<p>The momentum effect is the tendency for stocks that have gone up (down) in the past to continue going up (down) in the immediate future. Going up or down in the past is usually defined as the prior 12 months returns and is measured on a relative basis. A traditionally formed momentum portfolio takes a long position in stocks that are in the top decile of prior returns, and a short position in stocks in the bottom decile. Those stocks are held for a month, and portfolios are reformed as the constituents of the extreme deciles change. Note that the effect as defined cares only about returns in the cross-section. If all stocks in the market are positive, or negative for that matter, this is irrelevant for the long and short leg formation process.</p>
+<p>There are couple of aims to this analysis:</p>
+<ol style="list-style-type: decimal">
+<li><p>Compare a bottom up creation of momentum portfolios to the industry standard definition thereof,</p></li>
+<li><p>Confirm if the long and short legs perform equally, and</p></li>
+<li><p>Analyse the returns to the momentum effect, specifically looking at its relationship with market volatility, and its co-variation with economic growth and interest rates.</p></li>
+</ol>
+<p>The first point is important as I would like to use the longer time series of the public data to model the momentum effects behavior. If my custom implementation exhibits a significant similarity over the period in which both series overlap, I can be confident in applying whatever inference has been learnt from the long series to the short series.</p>
+<p><br>
+<br></p>
+<div id="data-overview" class="section level2">
+<h2>Data overview</h2>
+<p>The publicly available data comes from <a href="https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html">Ken French’s Data Library</a>. The data is presented as returns to 10 portfolios formed by ranking prior 12 month returns. The universe of stocks is those listed on the NYSE, AMEX or NASDAQ exchanges with sufficient historical data. This data is pre-aggregated in that only portfolio level data is presented. Individual stock level data is not available with this source. I will refer to this data as the public data set.</p>
+<p>The stock level data is collected with the Alpha Vantage API and stored in my <a href="https://brentmorrison.netlify.app/post/stock-master/">Stock Master</a> database. I am assigning stocks into deciles each month in order to form momentum portfolios similar to that described above. The universe is the top 1,000 stocks by a combined rank of total assets and equity. Data cover the period form 2012 to 2020. I’ll refer to this data as the custom data set.</p>
+<p>Both data sets have a monthly frequency.</p>
+<p><br>
+<br></p>
+</div>
+<div id="custom-data" class="section level2">
+<h2>Custom data</h2>
+<div id="cumulative-returns" class="section level3">
+<h3>Cumulative returns</h3>
+<p>We start plotting cumulative returns to a momentum strategy constructed using individual stocks returns. Both a traditional and truncated approach is included, this is explained further below.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-4-1.png" width="816" /></p>
+<p>The plot above contains two implementation approaches. Consistent with the description above, the traditional approach takes stocks in prior return deciles 1 and 10 as short and long portfolios. The truncated version ignores the extreme deciles and is calculated using deciles 2 &amp; 3, and 8 &amp; 9. Both approaches trim 5% of observations from the upper and lower values of monthly returns prior to computing the mean monthly return. The truncated version has been included on the suspicion that the traditional approach may contain spurious data and / or very small stocks with high volatility. The high volatility in the traditional approach suggests this may be a possibility. There is certainly some extreme movement in early and late 2020.</p>
+<p>The table below contains the first and tenth decile portfolios returns for February, March and October of 2020. These are the months with the very large absolute returns. Decile 1 is the short portfolio and decile 10 the long. Note that these are raw returns, a negative return in decile 1 (the short portfolio) represents a gain. These stocks are shorted.<br />
+<br>
+<br></p>
+<div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","data":[["Feb-2020","Mar-2020","Oct-2020"],[-0.47878317322124,0.633472038071444,0.5004450897043],[-0.158022737227741,0.0980485019243688,0.104625085465477],[0.321,-0.535,-0.396]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Date<\/th>\n      <th>Portfolio returns - decile 1<\/th>\n      <th>Portfolio returns - decile 10<\/th>\n      <th>Momentum portfolio returns<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"dom":"t","columnDefs":[{"targets":1,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatPercentage(data, 1, 3, \",\", \".\");\n  }"},{"targets":2,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatPercentage(data, 1, 3, \",\", \".\");\n  }"},{"targets":3,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatPercentage(data, 1, 3, \",\", \".\");\n  }"},{"className":"dt-right","targets":[1,2,3]}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":["options.columnDefs.0.render","options.columnDefs.1.render","options.columnDefs.2.render"],"jsHooks":[]}</script>
+<p><br>
+<br></p>
+<p>Digging deeper, we look at the top 10 constituents of these portfolios for each month.</p>
+<p><br>
+<br></p>
+<div id="htmlwidget-2" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-2">{"x":{"filter":"none","data":[["Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Feb-2020","Mar-2020","Mar-2020","Mar-2020","Mar-2020","Mar-2020","Mar-2020","Mar-2020","Mar-2020","Mar-2020","Mar-2020","Oct-2020","Oct-2020","Oct-2020","Oct-2020","Oct-2020","Oct-2020","Oct-2020","Oct-2020","Oct-2020","Oct-2020"],["CDEV","QEP","SM","OAS","NBR","NBLX","CPE","DNR","WES","MTDR","SAH","GPI","PHM","ZG","KMX","SYNH","SEM","GLPI","DHI","Z","GPOR","CDEV","AR","SM","APA","QEP","LPI","MTDR","WES","CEQP","OAS","RIG","SM","COTY","JWN","CDEV","CNK","SPR","MDP","NBR"],[2.37,2.25,6.57,1.635,1.76,15.35,2.27,0.7524,13.06,9.64,28,85.23,40.2,55.67,87.31,63.35,23.94,44.67,53.27,55.81,0.4447,0.263,0.7129,1.22,4.18,0.3345,0.3798,2.48,3.24,4.23,0.11,0.6705,1.61,2.9,12.1,0.6197,8.19,18.19,11,28.42],[1,1,1,1,1,1,1,1,1,1,10,10,10,10,10,10,10,10,10,10,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1,1],[-0.738699007717751,-0.706899956554366,-0.594095322098751,-0.707513416815742,-0.448346756882515,-0.494931348773841,-0.703267973856209,-0.608125,-0.566923703989592,-0.481720430107527,0.89587662915756,0.389547799139003,0.509219363908518,0.343712285783249,0.405958132045089,0.516638735934881,0.615384615384095,0.317272892583948,0.387191459617913,0.335167464114833,-0.944551122194514,-0.970079635949943,-0.919263873159683,-0.929584902594576,-0.87497161934669,-0.956131722862651,-0.877087378640777,-0.871702017589239,-0.885365291860603,-0.870451869391407,-0.957854406130268,-0.858842105263158,-0.793531508887122,-0.746574384787472,-0.654998389042065,-0.817735294117647,-0.770467360963196,-0.777154338078553,-0.696958009399812,-0.683754882214829],[-0.889029535864979,-0.849750707451826,-0.814314352609913,-0.785932721712538,-0.772763547102196,-0.771986970684539,-0.757709251101322,-0.75465178096757,-0.751914241959727,-0.742738589211618,-0.522972749792914,-0.480699284290101,-0.442590915543064,-0.389797018142626,-0.383461230099645,-0.377742699289661,-0.373433583958408,-0.369804322607273,-0.361742068707026,-0.354595950546497,4.74544636833821,3.48669201520913,3.18010941225978,2.33772869622548,2.1383149185295,1.94768310911809,1.86993154291732,1.83870967741935,1.77499999999947,1.58628841607759,306.323204643636,1.75913497390007,1.62732919254658,1.47931034482759,1.14214876033058,0.904147167984508,0.886446886446887,0.868659637350192,0.85,0.843420126671358]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Date<\/th>\n      <th>Symbol<\/th>\n      <th>Price<\/th>\n      <th>Trailing 12 month return decile<\/th>\n      <th>Trailing 12 month return<\/th>\n      <th>Subsequent month returns<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"autoWidth":false,"lengthChange":false,"searching":false,"columnDefs":[{"targets":4,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatPercentage(data, 1, 3, \",\", \".\");\n  }"},{"targets":5,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatPercentage(data, 1, 3, \",\", \".\");\n  }"},{"className":"dt-right","targets":[2,3,4,5]}],"order":[],"orderClasses":false}},"evals":["options.columnDefs.0.render","options.columnDefs.1.render"],"jsHooks":[]}</script>
+<p><br>
+<br></p>
+<p>There are some very large moves in these portfolios. Those investigated check out. For example CDEV (Centennial Resource Development) appeared in both the February and March short (decile 1) portfolio. This stock returned -89% (the price moving from 2.37 to 0.236) in March and 349% (0.236 to 1.18) in April. A momentum strategy including this stock would be short in a month in which the return was 349%.</p>
+<p>Price data has been included to provide an indication of implementability. Very low priced stocks are often not available for shorting, or even available to trade. The decile 1 and 10 portfolios are likely to include these type of stocks, and the data above bear this out. In light of this, we will continue to analyse the truncated portfolio methodology, this being a more realistic implementation approach.</p>
+<p><br>
+<br></p>
+</div>
+<div id="separating-long-and-short-legs" class="section level3">
+<h3>Separating long and short legs</h3>
+<p>The plots above show the aggregation of long and short portfolio legs. We can of course look at these individually. Looking at the component legs to the strategy individually will give us an idea as to what is driving returns and volatility. Which leg is contributing most to returns? Which leg is contributing most to volatility? Does combining legs reduce volatility?</p>
+<p>The plot below separates the long and short legs. Note the differing scales across each of the portfolio types.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-7-1.png" width="816" /></p>
+<p><br></p>
+<p>It’s quite obvious the short leg is not contributing to the profitability of the strategy. Eyeballing the plot suggests it may be reducing the aggregate volatility however, notice the large draw downs in the long portfolio that are offset by the spikes in the short portfolio.</p>
+<p><br></p>
+</div>
+<div id="scatter-plots" class="section level3">
+<h3>Scatter plots</h3>
+<p>Looking at cumulative returns to a strategy is informative and gives us a high-level view. Plots of cumulative returns are particularly good at calling out draw downs. They may hide some relationships of interest however. Let’s look closer at the relationship between prior and future returns using scatter plots.</p>
+<p>In the scatter plot below we standardise prior 12 month and forward 1 month returns at each date. The scale therefore represents the distance from the mean in standard deviations. The colors highlight long, short and neutral portfolios based on prior 12 months return. Long and short portfolios are the three extreme terciles (i.e. the traditional plus truncated versions). The fitted line is a GAM smoother, and although the noise in the data obscures it, it is independently fit for each bin.</p>
+<p><br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-8-1.png" width="816" /></p>
+<p><br></p>
+<p>This plot confirms the pattern observed in the analysis of cumulative returns. The long leg is working for us, the short leg less so. Subsequent month returns are positive for the short leg. Since the strategy shorts these stocks, the leg is not profitable. The plot also highlights the low signal to noise ratio. The fitted lines deviation from the mean is barely perceptible.</p>
+<p><br>
+<br></p>
+</div>
+<div id="conditioning-on-volatility" class="section level3">
+<h3>Conditioning on volatility</h3>
+<p>Controlling for volatility has been shown to <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3437919">enhance momentum strategies</a>. One of the findings of the linked study is that weighting the investment in the strategy so as to equalise expected volatility enhances returns. This scaling takes account of the fact that past volatility is negatively correlated with future returns. Let’s see if we can see this effect at individual stock level. Below, the plot presented above is faceted by individual stock volatility. Trailing 6 month volatility of daily returns is binned into terciles over the full time frame<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-9-1.png" width="816" /></p>
+<p><br>
+<br></p>
+<p>It looks like we only see the short momentum effect in low volatility stocks, it is only this portfolio that has negative (scaled) returns. Another observation is that the low volatility group has lower returns to the long leg compared to both the mid and high volatility groups. Let’s follow up on this point and construct a strategy where the short leg accepts only low volatility stocks while the long leg is unconstrained.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-10-1.png" width="816" /></p>
+<p><br>
+<br></p>
+<p>This strategy has certainly improved the performance of the short leg, but at the expense of the extremely profitable periods that reduce aggregate volatility.</p>
+<p>At this point we will finish with the analysis of individual stock data and note a couple of points. The negative returns to the short leg, and the characteristic of periods in which large draw downs to the long leg are offset by high profitability in the short leg.</p>
+<p><br>
+<br></p>
+<hr />
+<p><br>
+<br></p>
+</div>
+</div>
+<div id="public-data" class="section level2">
+<h2>Public data</h2>
+<p>We now compare the results derived from a bottom up approach using personally acquired data, to the public aggregate data set.</p>
+<p>Firstly, an important point in relation to portfolio formation. The custom data set forms portfolios (i.e. creates the decile breakpoints) at month t and records at month t the subsequent returns for period t to t +1. The public data set forms portfolios at month t -1, and records returns for the period t -1 to t. In order to make these series comparable, a month lead is applied to the public data. In addition to this, the public data excludes the most recent month from the returns used in assessing momentum. This is the approach used in the original <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=299107">paper</a> identifying the momentum effect. This different formation approach remains.</p>
+<p>The portfolio data is aggregated on an equal weighted basis so as to be comparable to the custom portfolios. Likewise, a truncated approach is used to mitigate the impact of extreme returns. While I don’t expect data errors to result in outliers to the same extent as in the custom data, given the expanded universe<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a> and inclusion of many more smaller capitilisation stocks, extreme returns are to be expected.</p>
+<p><br>
+<br></p>
+<div id="cumulative-returns-1" class="section level3">
+<h3>Cumulative returns</h3>
+<p>We will start comparing cumulative returns across data sets.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-13-1.png" width="816" /></p>
+<p><br>
+<br></p>
+<p>The overall pattern in cumulative returns is similar across the custom and public data sets. The magnitude of returns differs in the latter half of the series especially for the traditional approach. We can see the series drift apart during the 2017 to 2019.</p>
+<p>Looking at the long and short legs separately.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-14-1.png" width="816" /></p>
+<p><br>
+<br></p>
+<p>The series look much more alike when separated into long and short legs. The short leg appears to be the main driver of the differing returns. As expected, the two data sets appear more alike when constructed using the truncated approach.</p>
+<p>The table below shows the full period volatility of each of the series.</p>
+<div id="htmlwidget-3" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-3">{"x":{"filter":"none","data":[["Traditional","Traditional","Truncated","Truncated"],["Custom","Public","Custom","Public"],[0.0879567694833847,0.0776845455564635,0.0543663326559133,0.0555245918421822]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th>Method<\/th>\n      <th>Data source<\/th>\n      <th>Standard deviation of returns<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"dom":"t","columnDefs":[{"targets":2,"render":"function(data, type, row, meta) {\n    return type !== 'display' ? data : DTWidget.formatPercentage(data, 2, 3, \",\", \".\");\n  }"},{"className":"dt-right","targets":2}],"order":[],"autoWidth":false,"orderClasses":false}},"evals":["options.columnDefs.0.render"],"jsHooks":[]}</script>
+<p><br>
+<br></p>
+<p>Consistent with the plots, the difference in volatility between the truncated portfolios (custom versus public) is lower than that of the traditional portfolio.</p>
+<p>Can we rely on the similarity between the public momentum and custom momentum portfolios to such an extent that they are substitutable? If so, we can use the longer public data set to test characteristics of the strategy which can then be implemented using the custom data. Eyeballing the truncated data suggests the answer to that question might be yes.</p>
+</div>
+<div id="correlations-and-volatility" class="section level3">
+<h3>Correlations and volatility</h3>
+<p>Before we conclude, lets look at the correlation between series and compare volatility in more detail. First, correlations.</p>
+<p>The plot below shows the correlation between the custom and public data sets by period (pre 2017, post 2017 and the full series), and by strategy leg (long, short and combined).</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-16-1.png" width="816" /></p>
+<p><br>
+<br></p>
+<p>Observations:<br />
+1. The correlation between the traditional and truncated approaches for the long and short legs is greater than that for the combined strategy,<br />
+2. The correlations are consistent across sub-periods,<br />
+3. The correlations are high, in the 90% range.</p>
+<p>These observations are consistent with the cumulative return plots above. Nothing presented here would make us change our mind as to the substitutability of these series.</p>
+<p>Now comparing volatility, the plot below compares the average monthly volatility across the same facets described above.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-17-1.png" width="816" /></p>
+<p><br>
+<br></p>
+<p>The immediate observation is the high volatility of the short leg post 2017. This is consistent with the initial cumulative return plots presented above. The volatility differential between the custom and public data is not significant except for the combined strategy post 2017. The short leg is driving this difference.</p>
+<p>Based on the visual similarity, the similar correlations, and similar volatility, we close this portion of analysis concluding that the two truncated portfolios (that derived bottom up from the custom data, and that constructed from the public data) are sufficiently alike so as to use the public data set as a proxy for the custom data set.</p>
+<p>Let’s now turn to analysing the public data in its entirety.</p>
+<p><br>
+<br></p>
+</div>
+</div>
+<div id="public-data---full-series" class="section level2">
+<h2>Public data - full series</h2>
+<p>The analyse thus far has been limited to periods for which the custom data is available (post 2012).</p>
+<p>The public data set covers the period from 1930 to present. It is this that we will now look at with the caveat that analysis will be limited to the post 1950 period. We will focus on a period more closely resembling the current era.</p>
+<p>This section will explore this data in a similar manner heretofore; looking at returns to each leg and inspecting portfolio returns and volatility. Co-variation with macro variables will also be addressed.</p>
+<p>First we plot cumulative returns for the aggregate strategy, and also for each leg.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-18-1.png" width="816" /></p>
+<p><br>
+<br></p>
+<p>This calls things out in pretty stark terms. The over all strategy is profitable but the divergence between the long and short legs is huge. Why even both with the short leg? Research has shown that it is predominately the long leg driving returns for number of equity factors, see <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3493305">When equity factors drop their shorts</a> for
+example. So while the sign of the returns to each leg is to be expected, the magnitude is surprising. At this stage it is worth pointing out that traditionally defined factors are weighted by market capitalisation and are first sorted on size. From the <a href="https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/det_mom_factor.html">data library</a> explanation of the momentum factor:</p>
+<blockquote>
+<p>"We use six value-weight portfolios formed on size and prior (2-12) returns to construct momentum. The portfolios, which are formed monthly, are the intersections of 2 portfolios formed on size (market equity, ME) and 3 portfolios formed on prior (2-12) return. The monthly size breakpoint is the median NYSE market equity. The monthly prior (2-12) return breakpoints are the 30th and 70th NYSE percentiles.</p>
+</blockquote>
+<blockquote>
+<p>Momentum is the average return on the two high prior return portfolios minus the average return on the two low prior return portfolios."</p>
+</blockquote>
+<p>I suspect the short leg of the portfolio defined above will have better performance than the truncated equal weighted portfolios created for this analysis. The small high volatility stocks that are a return drag have a smaller impact in market capitalisation weighted portfolios.</p>
+<p>Other significant observation include the large draw downs in 1975 and 2008; the largely consistent positive returns (driven by the long leg); and the period in the early 70’s when the short leg offset the long legs losses, thus contributing to aggregate profitability.</p>
+<p><br></p>
+<div id="trailing-volatlity" class="section level3">
+<h3>Trailing volatlity</h3>
+<p>We revisit volatility as a conditioning factor on momentum returns. The analysis of the public data will focus on trailing volatility of market returns (proxied by the S&amp;P 500 index), as opposed to individual stock returns within the portfolio under analysis. Remember, the public data does not contain individual stock returns so we cannot do this. The plot below shows momentum strategy returns and trailing 20 day volatility.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-19-1.png" width="816" /></p>
+<p>The smooth regression line suggests a tendency for momentum portfolio returns to be negative following periods of high volatility. We can see that the regression line become negative once volatility exceeds 25%. Note also the outlying data points. It is interesting to note that the returns in October 1987, the month of the Black Monday crash are unremarkable.</p>
+<p>What about by long and short leg?</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-20-1.png" width="816" /></p>
+<p>It is now apparent the effect of trailing volatility differs across legs. Moving from very low to average volatility increases returns for the long leg. It is then only as volatility increases further do returns decrease. Whereas for the short leg, as volatility increases, returns decrease monotonically. This appears to be in contrast to the individual stock data which suggest low volatility stocks in the short portfolio deliver positive returns. A lot needs to be done to tease out the various effects driving this observation, and that is beyond the scope of this analysis.</p>
+<p>The observations above raise a couple of questions. It would be interesting to compare returns to the standard truncated strategy with returns to the same strategy conditioned on prior month volatility. The chart below does this, if prior month volatility is greater than 25%, the strategy stays out of the market.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-21-1.png" width="816" /></p>
+<p>That would have gotten us out of a pickle during the financial crisis during September 2008 (with a bit of hindsight of course!), but is not helping anywhere else.</p>
+<p>Lets apply the same concept, but conditioning on the long and short legs individually.</p>
+<p>We will indulge ourselves and optimise the volatility filtering rule iterating over different cut-off values. Why an indulgence? Again, we are peaking into the future here. This is not a valid analysis should we wish to rely on these rules going forward.</p>
+<p>The optimal volatility cut-off for the long portfolio is 0.35, and for the short portfolio 0.05. This very low filter effectively turns the short portfolio off. Not surprising given what we now know about the short leg. This may not be the optimal approach should it’s inclusion lower overall portfolio volatility, or put another way, if its diversification benefit raises the sharpe ratio.</p>
+<p>As an aside, it would be interesting to determine if using daily trailing volatility of the momentum portfolio returns (as opposed to market volatility) is a better timing indicator. This is doable, daily data is available in the French Data Library, however for now we will leave this exercise for another time.</p>
+<p>Back to the point at hand, below is plot of the optimised portfolios referred to above.</p>
+<p><br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-23-1.png" width="816" /></p>
+<p><br></p>
+<p>The short leg speaks for itself. As stated, since it is delivering negative returns, the goal seek has set the filter at such a low level as to effectively disallow investing in this portfolio. The line labelled <em>Naive optimisation (25%)</em> is the same as that labelled <em>Volatility filtered</em> in the preceding plot. It is pretty obvious applying a volatility filter to the long strategy is optimal.</p>
+<p>At this point I am going to finish the analysis on volatility, concluding with the point that volatility filtering can enhance the long leg, but not save the short.</p>
+<p><br>
+<br></p>
+</div>
+</div>
+<div id="covariance-with-macro-variables" class="section level2">
+<h2>Covariance with macro variables</h2>
+<p>Most studies that look at some type of “factor” or “anomaly” in the stock market, look at co-variation with macroeconomic variables. I am not going to go into a lot of detail here. Rather, a couple of high level plots investigating obvious relationships appearing at first pass. We will look at economic growth and interest rates. You can of course go to town with this sort of thing and other variables usually include financial conditions, credit growth, consumer sentiment, etc.</p>
+<div id="economic-growth" class="section level3">
+<h3>Economic growth</h3>
+<p>I’m going to use the CFNAI diffusion index to proxy for economic growth. The <a href="https://www.chicagofed.org/publications/cfnai/index">CFNAI</a> index is:</p>
+<blockquote>
+<p>“a weighted average of 85 existing monthly indicators of national economic activity. It is constructed to have an average value of zero and a standard deviation of one. Since economic activity tends toward trend growth rate over time, a positive index reading corresponds to growth above trend and a negative index reading corresponds to growth below trend”</p>
+</blockquote>
+<p>The <a href="https://fred.stlouisfed.org/series/CFNAIDIFF">CFNAI diffusion index</a> is:</p>
+<blockquote>
+<p>“calculated as the sum of the absolute values of the underlying indicators whose contribution to the CFNAI is positive in a given month less the sum of the absolute values of the weights for those indicators whose contribution is negative or neutral, expressed as a proportion of the total sum of the absolute values of the weights”</p>
+</blockquote>
+<p>The upper panel of the plot below shows cumulative returns to the truncated momentum strategy shaded with periods in which the forward 6 month return is less than negative 20%. We are calling out forward draw downs with this plot. The aim is to identify times when we do not want to be invested in the strategy. The lower panel has the same shading as the upper panel, this time over the Chicago Fed National Activity Index (CFNAI) diffusion index. The idea is to highlight potential relationships between the state of the index and forward returns.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-24-1.png" width="816" /></p>
+<p>It is pretty hard to find a discernible pattern here, but we might say troughs in the CFNAI index tend to precede large draw downs.</p>
+<p><br></p>
+<p>Next, let’s see if discretising the CFNAI into equal frequency bins can help elucidate relationship between the series. The plot below has 18 facets. Let’s start with the top 6. These represent bins defined as the intersection of periods when the CFNAI level is considered high, low or medium; and when its 6 month change is either positive or negative. The following two rows are the same bins lagged 6 and 12 months. The density plots show the returns when the series is in the bin specified, and all other times. The value labeled <em>KS pvalue</em> is the p value derived from the two sample Kolmogorov-Smirnov test. The intuition behind this approach is to tease out potential non-linearities and interaction effects that a traditional regression model may miss.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-25-1.png" width="816" /></p>
+<p>The one significant facet above is that highlighting periods when the un-lagged CFNAI index is low and increasing (top row, four across). When the market is in this state the subsequent monthly returns to the momentum strategy are 2% lower than at all other times. This appears consistent with the time series analysis in that the very large draw down in 2008 coincides with the CFNAI index increasing from a very low level. It is possible that this single data point is driving the result seen.</p>
+<p><br></p>
+<div id="interest-rates" class="section level4">
+<h4>Interest rates</h4>
+<p>The plot below shows the momentum strategy and yield spread. The yield spread being the excess of the 10 year treasury rate over the 2 year treasury rate.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-26-1.png" width="816" /></p>
+<p>If anything we might say the major draw downs occur only when the yield spread is rising. The relationship seems to be quite weak.</p>
+<p><br></p>
+<p>Now to the density plots of subsequent returns.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-27-1.png" width="816" /></p>
+<p>As suspected, very little in the way of a significant relationship with the exception of one facet. Periods with low and increasing yield spread lagged 6 months (second row, four across) has historically seen 1% higher forward monthly returns than other times. This is a weaker effect than that observed with the CFNAI index, the difference in mean is smaller and the p value is higher. I wonder if this represents periods that correspond to the last part of bull markets? An increasing yield curve is traditionally a signal of recession and bull markets typically go exponential before recessions drag them down.</p>
+<p><br>
+<br></p>
+<hr />
+<p><br>
+<br></p>
+</div>
+</div>
+<div id="conclusion" class="section level3">
+<h3>Conclusion</h3>
+<p>I set out to answer couple of questions with this analysis.</p>
+<p>First, compare a bottom up creation of momentum portfolios to the industry standard definition thereof. Are these substitutable? The answer to this is yes, with a few caveats. We must use a truncated portfolio construction technique, discarding the two end deciles. We must also use equal weighted returns. Why is it that only after using these specific portfolio construction techniques are the data sets similar? This is due to the different investable universes available for each data set. The custom data contains the top 1,000 stocks by size (measured with accounting variables, assets and equity). In contrast the public data set is a much expanded universe, essentially all US stocks. Different combinations of volatile stocks lead to different returns, and I suspect the end portfolios embody this more than other decile portfolios. What about the requirement for equal weighting? This is simple, I haven’t gone to the trouble of constructing weighted returns for the custom data.</p>
+<p>Second, do the long and short legs of the momentum strategy perform equally? This is a clear cut no. The short leg is rarely profitable, the long leg consistently so. A little more nuance to this would point out that there are periods when the short leg offsets losses in the long.</p>
+<p>Last, how does the momentum effect co-vary with economic growth and interest rates. Using the CFNAI index as a proxy for economic growth, we see that the momentum strategy performs poorly when the CFNAI index is low and increasing. A weaker relationship is observed with the yield spread, periods with a low and increasing lagged yield spread see slightly higher forward returns.</p>
+<p>Over the course of the above analysis we also examined volatility as a conditioning factor on momentum returns. Filtering out low volatility stocks in the cross section, and filtering the time series implementation so as to invest only during low volatility periods both enhanced returns. How these effects interact requires further analysis.</p>
+<p><br></p>
+</div>
+</div>
+<div id="limitations-further-investigation" class="section level2">
+<h2>Limitations &amp; further investigation</h2>
+<p>There are of course limitations to any analysis. The investigation of momentum portfolios has been that of an exploratory data analysis, there has been no inference from explanatory variables or prediction into future returns. The binning approach to assessing macro variable is a rather rudimentary technique, and should form only a starting point for more detailed analysis. Bins make interpretation easy but throw away information. See the notes at the bottom of this <a href="https://brentmorrison.netlify.app/post/time-series-segmentation-and-plotting/">post</a> discussing same.</p>
+<p>Further investigation. I suppose your imagination is the limit here. From my perspective, a few points of interest. Further investigations might look at regressing both legs of the momentum portfolios against the macro variables, market volatility and the strategies trailing volatility. Using the volatility of daily returns of the public data set may provide better signals in this type of regression. The comparison of custom and public data sets could be extended to look at the similarity between series as measured by <a href="https://en.wikipedia.org/wiki/Dynamic_time_warping">Dynamic time warping</a>. Lastly, we could compare the market capitalisation weighted and equal weighted end decile portfolios of the public data set in order to determine if small capitalisation stocks are contributing to the volatility of these portfolios.</p>
+<p><br></p>
+<hr />
+<p><br></p>
+<div id="bonus" class="section level3">
+<h3>Bonus</h3>
+<p>The analysis below doesn’t fit neatly anywhere else in this post. I thought this might be interesting however. Here we look at the monotonicity of the momentum deciles. Are returns increasing with each decile? This is assessed using the Spearmans rank correlation between returns to each of the deciles and the decile bin number.</p>
+<p>Presented without comment.</p>
+<p><br>
+<br></p>
+<p><img src="/post/2021-09-20-momentum-analysis_files/figure-html/unnamed-chunk-28-1.png" width="816" /></p>
+</div>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>Inherent in this approach is a look-ahead bias. Data from 2020 is being used to determine quantiles in 2012. Not something that can be done in real time. For this exploratory analysis, our “back of the envelope” approach will suffice.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>The public data is not limited to the top 1,000 largest stocks like the custom data.<a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>

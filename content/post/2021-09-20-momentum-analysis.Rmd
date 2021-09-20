@@ -1,0 +1,1311 @@
+---
+title: "Analysing Momentum"
+author: "Brent Morrison"
+date: '2021-09-20'
+slug: momentum-analysis
+categories: Stocks
+tags:
+- R
+- Stocks
+description: ''
+topics: []
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+---
+
+This post is going to analyse the [momentum effect](https://quantpedia.com/strategies/momentum-factor-effect-in-stocks/) in US stocks using both publicly available aggregate data, and privately collected individual stock level data. 
+
+The momentum effect is the tendency for stocks that have gone up (down) in the past to continue going up (down) in the immediate future.  Going up or down in the past is usually defined as the prior 12 months returns and is measured on a relative basis.  A traditionally formed momentum portfolio takes a long position in stocks that are in the top decile of prior returns, and a short position in stocks in the bottom decile.  Those stocks are held for a month, and portfolios are reformed as the constituents of the extreme deciles change.  Note that the effect as defined cares only about returns in the cross-section.  If all stocks in the market are positive, or negative for that matter, this is irrelevant for the long and short leg formation process. 
+
+There are couple of aims to this analysis:  
+
+1. Compare a bottom up creation of momentum portfolios to the industry standard definition thereof,  
+
+2. Confirm if the long and short legs perform equally, and  
+
+3. Analyse the returns to the momentum effect, specifically looking at its relationship with market volatility, and its co-variation with economic growth and interest rates.  
+
+The first point is important as I would like to use the longer time series of the public data to model the momentum effects behavior.  If my custom implementation exhibits a significant similarity over the period in which both series overlap, I can be confident in applying whatever inference has been learnt from the long series to the short series.  
+
+<br>
+<br>
+
+## Data overview
+
+The publicly available data comes from [Ken French's Data Library](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html).  The data is presented as returns to 10 portfolios formed by ranking prior 12 month returns. The universe of stocks is those listed on the NYSE, AMEX or NASDAQ exchanges with sufficient historical data.  This data is pre-aggregated in that only portfolio level data is presented.  Individual stock level data is not available with this source.  I will refer to this data as the public data set.  
+
+The stock level data is collected with the Alpha Vantage API and stored in my [Stock Master](https://brentmorrison.netlify.app/post/stock-master/) database.  I am assigning stocks into deciles each month in order to form momentum portfolios similar to that described above.  The universe is the top 1,000 stocks by a combined rank of total assets and equity.  Data cover the period form 2012 to 2020.  I'll refer to this data as the custom data set.  
+
+Both data sets have a monthly frequency.
+
+
+
+```{r include=FALSE}
+# Libraries
+library(tidyverse)
+library(DBI)
+library(RPostgres)
+library(DescTools)
+library(RollingWindow)
+library(lubridate)
+library(kableExtra)
+library(DT)
+library(mgcv)
+library(romerb)
+
+# Source functions
+source("C:/Users/brent/Documents/VS_Code/postgres/postgres/return_attributes.R")
+
+# Connect to db
+con <- stock_master_connect()
+```
+
+
+```{r include=FALSE, cache = TRUE}
+# Read data
+sql1 <- "select * from access_layer.return_attributes"
+qry1 <- dbSendQuery(conn = con, statement = sql1) 
+return_attributes <- dbFetch(qry1)
+return_attributes <- arrange(return_attributes, symbol, date_stamp)
+
+sql2 <- "select * from alpha_vantage.daily_sp500_ts_vw"
+qry2 <- dbSendQuery(conn = con, statement = sql2) 
+sp_500_raw <- dbFetch(qry2)
+
+
+
+# Daily S&P 500 series with various volatility attributes ------------------------------------------------------------------
+
+sp_500_daily <- sp_500_raw %>% 
+  mutate(
+    rtn_ari_1d       = (adjusted_close-lag(adjusted_close))/lag(adjusted_close)
+    ,vol_ari_20d     = RollingStd(rtn_ari_1d, window = 20, na_method = 'window') * sqrt(252)
+    ,vol_ari_60d     = RollingStd(rtn_ari_1d, window = 60, na_method = 'window') * sqrt(252)
+    ,vol_ari_120d    = RollingStd(rtn_ari_1d, window = 120, na_method = 'window') * sqrt(252)
+  )
+
+
+
+# Monthly S&P 500 series with volatility -----------------------------------------------------------------------------------
+
+sp_500_monthly <- sp_500_daily %>% 
+  group_by(date_stamp = floor_date(date_stamp, "month")) %>% 
+  mutate(date_stamp = ceiling_date(date_stamp, unit = "month") - 1) %>% 
+  summarise(
+    close              = last(close),
+    sp500_vol_ari_20d  = last(vol_ari_20d),
+    sp500_vol_ari_60d  = last(vol_ari_60d),
+    sp500_vol_ari_120d = last(vol_ari_120d)
+    ) %>% 
+  mutate(vol_thresh = factor(if_else(sp500_vol_ari_20d > 0.2, 'high_vol', 'low_vol'))) 
+
+
+
+# Create series containing mean volatility for individual stocks -----------------------------------------------------------
+
+mean_vol <- return_attributes %>% 
+  filter(date_stamp > as.Date('2011-12-31'), date_stamp <= as.Date('2020-12-31')) %>% 
+  group_by(symbol) %>%
+  mutate(fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close))) %>% 
+  ungroup() %>% 
+  group_by(date_stamp) %>% 
+  mutate(wins_vol_ari_20d = Winsorize(vol_ari_20d, probs = c(0.01, 0.8), na.rm = TRUE)) %>% 
+  summarise(mean_vol_ari_20d = mean(wins_vol_ari_20d, trim = 0.05, na.rm = TRUE))
+
+
+
+# Returns to the momentum factor and long and short legs - aggregated from individual stocks -------------------------------
+# 23-89 refers to a factor formed using the 2nd, 3rd, 8th and 9th deciles
+
+momentum_fctr <- return_attributes %>% 
+  filter(date_stamp > as.Date('2011-12-31'), date_stamp <= as.Date('2020-12-31')) %>% 
+  group_by(symbol) %>% 
+  mutate(fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close))) %>% 
+  ungroup() %>% 
+  group_by(date_stamp, rtn_ari_12m_dcl) %>% 
+  summarise(mom_dcl_fwd_rtn = mean(fwd_rtn_1m, trim = 0.05, na.rm = TRUE)) %>% 
+  ungroup() %>% 
+  pivot_wider(
+    names_from = rtn_ari_12m_dcl, 
+    values_from = mom_dcl_fwd_rtn,
+    names_prefix = 'dcl_'
+    ) %>% 
+  mutate(
+    mom_dcl_fwd_rtn = round(dcl_10 - dcl_1, 3),
+    mom_23_fwd_rtn = round((dcl_2 + dcl_3)/2, 3),
+    mom_89_fwd_rtn = round((dcl_8 + dcl_9)/2, 3),
+    mom_2389_fwd_rtn = round((dcl_8 + dcl_9)/2 - (dcl_2 + dcl_3)/2, 3),
+    mom_dcl_fwd_cum_rtn = cumprod(1 + mom_dcl_fwd_rtn),
+    mom_2389_fwd_cum_rtn = cumprod(1 + mom_2389_fwd_rtn)
+    )
+
+
+```
+
+<br>
+<br>
+
+## Custom data  
+
+### Cumulative returns
+
+We start plotting cumulative returns to a momentum strategy constructed using individual stocks returns. Both a traditional and truncated approach is included, this is explained further below.  
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, cache=TRUE}
+# Set default theme
+def_theme1 <- theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9,0.9),
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    plot.caption = element_text(size = 8, color = "grey55", face = 'italic'), 
+    axis.title.y = element_text(size = 8, color = "darkslategrey"),
+    axis.title.x = element_text(size = 8, color = "darkslategrey"),
+    axis.text.y = element_text(size = 7, color = "darkslategrey"),
+    axis.text.x = element_text(size = 7, color = "darkslategrey")
+    )
+```
+
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, cache=TRUE}
+momentum_fctr %>%
+  select(date_stamp, mom_dcl_fwd_rtn, mom_2389_fwd_rtn) %>% 
+  pivot_longer(
+    cols = c(mom_dcl_fwd_rtn, mom_2389_fwd_rtn),
+    names_to = 'label', 
+    values_to = 'fwd_returns'
+  ) %>% 
+  arrange(label, date_stamp) %>% 
+  group_by(label) %>% 
+  mutate(
+    method = if_else(label == 'mom_2389_fwd_rtn', 'Truncated', 'Traditional'),
+    fwd_cum_rtn = cumprod(1 + fwd_returns),
+  ) %>% 
+  drop_na() %>% 
+  ggplot(aes(x = date_stamp, y = fwd_cum_rtn)) +
+  geom_line() +
+  facet_wrap(vars(method)) +
+  labs(x = '',
+       y = '',
+       title = 'Custom momentum factor cumulative returns',
+       subtitle = 'Monthly average returns to long / short decile portfolios formed on prior 12 month returns',
+       caption = 'Source: SEC EDGAR database for fundamental values informing universe contruction and Alpha Vanatage for stock prices') +
+  scale_y_continuous(breaks = seq(1,2,0.5)) +
+  scale_x_date(date_breaks = '2 years',
+               date_labels = '%Y') + 
+  def_theme1
+```
+
+The plot above contains two implementation approaches.  Consistent with the description above, the traditional approach takes stocks in prior return deciles 1 and 10 as short and long portfolios.  The truncated version ignores the extreme deciles and is calculated using deciles 2 & 3, and 8 & 9.  Both approaches trim 5% of observations from the upper and lower values of monthly returns prior to computing the mean monthly return.  The truncated version has been included on the suspicion that the traditional approach may contain spurious data and / or very small stocks with high volatility.  The high volatility in the traditional approach suggests this may be a possibility. There is certainly some extreme movement in early and late 2020.  
+
+The table below contains the first and tenth decile portfolios returns for February, March and October of 2020.  These are the months with the very large absolute returns. Decile 1 is the short portfolio and decile 10 the long.  Note that these are raw returns, a negative return in decile 1 (the short portfolio) represents a gain.  These stocks are shorted.  
+<br>
+<br>
+
+```{r echo=FALSE}
+momentum_fctr %>% 
+  filter(date_stamp %in% c(as.Date('2020-02-29'),as.Date('2020-03-31'),as.Date('2020-10-31'))) %>% 
+  select(date_stamp, dcl_1, dcl_10, mom_dcl_fwd_rtn) %>% 
+  mutate(date_stamp = format(date_stamp, "%b-%Y")) %>% 
+  #kable()
+  #kbl() %>% kable_styling(bootstrap_options = c("striped", "hover"))
+  datatable(options = list(dom = 't'), rownames= FALSE, colnames=c('Date', 'Portfolio returns - decile 1', 'Portfolio returns - decile 10', 'Momentum portfolio returns')) %>% formatPercentage(c('dcl_1', 'dcl_10', 'mom_dcl_fwd_rtn'), 1)
+```
+
+<br>
+<br>
+
+Digging deeper, we look at the top 10 constituents of these portfolios for each month.
+
+<br>
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+return_attributes %>% 
+  group_by(symbol) %>% 
+  mutate(
+    fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close)),
+    abs_fwd_rtn_1m = abs(fwd_rtn_1m)
+    ) %>% 
+  filter(
+    date_stamp == as.Date('2020-02-29') & rtn_ari_12m_dcl %in% c(1,10)|
+    date_stamp == as.Date('2020-03-31') & rtn_ari_12m_dcl == 1 |
+    date_stamp == as.Date('2020-10-31') & rtn_ari_12m_dcl == 1
+    ) %>% 
+  group_by(date_stamp, rtn_ari_12m_dcl) %>% 
+  slice_max(order_by = abs_fwd_rtn_1m, n = 10) %>% 
+  select(date_stamp, symbol, close, rtn_ari_12m_dcl, rtn_ari_12m, fwd_rtn_1m) %>% 
+  mutate(date_stamp = format(date_stamp, "%b-%Y")) %>% 
+  datatable(options = list(autoWidth = FALSE, lengthChange = FALSE, searching = FALSE), rownames= FALSE, colnames=c('Date', 'Symbol', 'Price', 'Trailing 12 month return decile', 'Trailing 12 month return', 'Subsequent month returns')) %>% 
+  formatPercentage(c('rtn_ari_12m', 'fwd_rtn_1m'), 1)
+```
+
+<br>
+<br>
+
+There are some very large moves in these portfolios. Those investigated check out.  For example CDEV (Centennial Resource Development) appeared in both the February and March short (decile 1) portfolio. This stock returned -89% (the price moving from 2.37 to 0.236) in March and 349% (0.236 to 1.18) in April. A momentum strategy including this stock would be short in a month in which the return was 349%.  
+
+Price data has been included to provide an indication of implementability. Very low priced stocks are often not available for shorting, or even available to trade.  The decile 1 and 10 portfolios are likely to include these type of stocks, and the data above bear this out.  In light of this, we will continue to analyse the truncated portfolio methodology, this being a more realistic implementation approach.  
+
+<br>
+<br>
+
+### Separating long and short legs  
+
+The plots above show the aggregation of long and short portfolio legs.  We can of course look at these individually.  Looking at the component legs to the strategy individually will give us an idea as to what is driving returns and volatility.  Which leg is contributing most to returns?  Which leg is contributing most to volatility?  Does combining legs reduce volatility?  
+
+The plot below separates the long and short legs.  Note the differing scales across each of the portfolio types.
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+momentum_fctr %>% 
+  select(date_stamp, dcl_1, dcl_10, mom_23_fwd_rtn, mom_89_fwd_rtn) %>% 
+  pivot_longer(
+  cols = c(dcl_1, dcl_10, mom_23_fwd_rtn, mom_89_fwd_rtn),
+  names_to = 'label', 
+  values_to = 'fwd_returns'
+  ) %>% 
+  arrange(label, date_stamp) %>% 
+  group_by(label) %>% 
+  mutate(
+    leg = if_else(label == 'dcl_1' | label == 'mom_23_fwd_rtn', 'Short', 'Long'),
+    fwd_returns = if_else(leg == 'Short', -fwd_returns, fwd_returns),
+    method = if_else(label == 'mom_23_fwd_rtn' | label == 'mom_89_fwd_rtn', 'Truncated', 'Traditional'),
+    fwd_cum_rtn = cumprod(1 + fwd_returns)
+    ) %>% 
+  drop_na() %>% 
+  ggplot(aes(x = date_stamp, y = fwd_cum_rtn)) +
+  geom_line() +
+  facet_grid(vars(leg), vars(method), scales = 'free_y') +
+  labs(x = '',
+       y = '',
+       title = 'Momentum factor cumulative returns by long and short leg',
+       subtitle = 'Monthly average returns to long / short decile portfolios formed on prior 12 month returns',
+       caption = 'Source: SEC EDGAR database for fundamental values informing universe contruction and Alpha Vantage for stock prices') +
+  scale_y_continuous(breaks = seq(-1 ,5, 0.5)) +
+  scale_x_date(date_breaks = '2 years',
+               date_labels = '%Y') +
+  def_theme1
+```
+
+<br>
+
+It's quite obvious the short leg is not contributing to the profitability of the strategy.  Eyeballing the plot suggests it may be reducing the aggregate volatility however, notice the large draw downs in the long portfolio that are offset by the spikes in the short portfolio.  
+ 
+<br>
+
+### Scatter plots
+  
+Looking at cumulative returns to a strategy is informative and gives us a high-level view.  Plots of cumulative returns are particularly good at calling out draw downs.  They may hide some relationships of interest however.  Let's look closer at the relationship between prior and future returns using scatter plots.  
+
+In the scatter plot below we standardise prior 12 month and forward 1 month returns at each date.  The scale therefore represents the distance from the mean in standard deviations.  The colors highlight long, short and neutral portfolios based on prior 12 months return.  Long and short portfolios are the three extreme terciles (i.e. the traditional plus truncated versions).  The fitted line is a GAM smoother, and although the noise in the data obscures it, it is independently fit for each bin.   
+
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+return_attributes %>% 
+  filter(date_stamp > as.Date('2011-12-31'), date_stamp <= as.Date('2020-12-31')) %>%  
+  group_by(symbol) %>% 
+  mutate(
+    fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close)),
+    ) %>% 
+  ungroup() %>% 
+  group_by(date_stamp) %>% 
+  mutate(
+    #fwd_rtn_1m = Winsorize(fwd_rtn_1m, probs = c(0.05, 0.85), na.rm = TRUE),
+    #rtn_ari_12m = Winsorize(rtn_ari_12m, probs = c(0.05, 0.85), na.rm = TRUE),
+    fwd_rtn_1m = scale(fwd_rtn_1m),
+    rtn_ari_12m = scale(rtn_ari_12m)
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    leg = case_when(
+      #rtn_ari_12m_dcl == 1 ~ 'short - traditional',
+      rtn_ari_12m_dcl %in% c(1,2,3) ~ 'short', # - truncated
+      rtn_ari_12m_dcl %in% c(8,9,10) ~ 'long', #  - truncated
+      #rtn_ari_12m_dcl == 10 ~ 'long - traditional',
+      TRUE ~ 'neutral'
+    )) %>% 
+  ggplot(aes(x = rtn_ari_12m, y = fwd_rtn_1m, colour = factor(leg))) + 
+  geom_point(alpha = 0.6) +
+  stat_smooth(method = 'gam', formula = y ~ s(x), size = 0.6, colour = 'grey') +
+  scale_colour_hue(l = 70, c = 30, h = c(180, 300)) +
+  #geom_vline(xintercept = 0, color = 'ivory', size = 0.25) +
+  #geom_hline(yintercept = 0, color = 'ivory', size = 0.25) +
+  coord_cartesian(xlim = c(-5, 7.5), ylim = c(-5, 7.5)) +
+  labs(x = 'Trailing 12 month returns',
+     y = 'Subsequent month returns',
+     title = 'Trailing and subsequent returns',
+     subtitle = 'Standardised at each assessment date',
+     caption = 'Source: SEC EDGAR database for fundamental values informing\nuniverse contruction and Alpha Vantage for stock prices') +
+  def_theme1
+```
+
+<br>
+
+This plot confirms the pattern observed in the analysis of cumulative returns. The long leg is working for us, the short leg less so.  Subsequent month returns are positive for the short leg.  Since the strategy shorts these stocks, the leg is not profitable.  The plot also highlights the low signal to noise ratio.  The fitted lines deviation from the mean is barely perceptible.
+
+<br>
+<br>
+
+### Conditioning on volatility  
+  
+Controlling for volatility has been shown to [enhance momentum strategies](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3437919).  One of the findings of the linked study is that weighting the investment in the strategy so as to equalise expected volatility enhances returns.  This scaling takes account of the fact that past volatility is negatively correlated with future returns.  Let's see if we can see this effect at individual stock level.  Below, the plot presented above is faceted by individual stock volatility.  Trailing 6 month volatility of daily returns is binned into terciles over the full time frame[^1].
+
+[^1]: Inherent in this approach is a look-ahead bias.  Data from 2020 is being used to determine quantiles in 2012.  Not something that can be done in real time.  For this exploratory analysis, our "back of the envelope" approach will suffice.
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+vol_lab <- c('Low volatility','Mid volatility','High volatility')
+names(vol_lab) <- c(1,2,3)
+
+return_attributes %>% 
+  filter(date_stamp > as.Date('2011-12-31'), date_stamp <= as.Date('2020-12-31')) %>%  #, rtn_ari_12m_dcl %in% c(1,2,3,8,9,10)
+  group_by(symbol) %>% 
+  mutate(
+    fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close)),
+    ) %>% 
+  ungroup() %>% 
+  group_by(date_stamp) %>% 
+  mutate(
+    #fwd_rtn_1m = Winsorize(fwd_rtn_1m, probs = c(0.05, 0.85), na.rm = TRUE),
+    #rtn_ari_12m = Winsorize(rtn_ari_12m, probs = c(0.05, 0.85), na.rm = TRUE),
+    fwd_rtn_1m = scale(fwd_rtn_1m),
+    rtn_ari_12m = scale(rtn_ari_12m)
+  ) %>% 
+  ungroup() %>% 
+  mutate(
+    leg = case_when(
+      rtn_ari_12m_dcl %in% c(1,2,3) ~ 'short',
+      rtn_ari_12m_dcl %in% c(8,9,10) ~ 'long',
+      TRUE ~ 'neutral'
+    ),
+    vol_tercile = ntile(vol_ari_120d, 3)
+  ) %>% 
+  ggplot(aes(x = rtn_ari_12m, y = fwd_rtn_1m, colour = factor(leg))) + 
+  geom_point(alpha = 0.6) +
+  stat_smooth(method = 'gam', formula = y ~ s(x), size = 0.6, colour = 'grey') +
+  scale_colour_hue(l = 70, c = 30, h = c(180, 300)) +
+  coord_cartesian(xlim = c(-5, 7.5), ylim = c(-5, 5)) +  
+  facet_wrap(vars(vol_tercile), labeller = labeller(vol_tercile = vol_lab)) +
+  labs(x = 'Trailing 12 month returns',
+     y = 'Subsequent month returns',
+     title = 'Trailing and subsequent returns and volatility',
+     subtitle = 'Standardised at each date interval',
+     caption = 'Source: SEC EDGAR database for fundamental values informing universe contruction and Alpha Vantage for stock prices') +
+  def_theme1 + theme(legend.position = "bottom")
+```
+
+<br>
+<br>
+
+It looks like we only see the short momentum effect in low volatility stocks, it is only this portfolio that has negative (scaled) returns.  Another observation is that the low volatility group has lower returns to the long leg compared to both the mid and high volatility groups.  Let's follow up on this point and construct a strategy where the short leg accepts only low volatility stocks while the long leg is unconstrained.
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+return_attributes %>% 
+  filter(date_stamp > as.Date('2011-12-31'), date_stamp <= as.Date('2020-12-31')) %>% 
+  group_by(symbol) %>% 
+  mutate(fwd_rtn_1m = lead((adjusted_close-lag(adjusted_close))/lag(adjusted_close))) %>% 
+  ungroup() %>% 
+  mutate(vol_tercile = ntile(vol_ari_120d, 3)) %>% # toggle this to change vol tercile b/w global & by date
+  group_by(date_stamp, rtn_ari_12m_dcl) %>% 
+  mutate(
+    #vol_tercile = ntile(vol_ari_120d, 3),         # toggle this to change vol tercile b/w global & by date
+    leg = case_when(
+      rtn_ari_12m_dcl %in% c(2,3) & vol_tercile == 1 ~ 'Short',
+      rtn_ari_12m_dcl %in% c(8,9)  ~ 'Long',
+      #rtn_ari_12m_dcl %in% c(8,9) & vol_tercile == 2 ~ 'long',
+      TRUE ~ 'other')
+  ) %>% 
+  group_by(date_stamp, leg) %>% 
+  summarise(leg_fwd_rtn1 = mean(fwd_rtn_1m, na.rm = TRUE)) %>% 
+  mutate(leg_fwd_rtn = if_else(leg == 'Short', -leg_fwd_rtn1, leg_fwd_rtn1)) %>% 
+  filter(leg %in% c('Short','Long')) %>% 
+  arrange(leg, date_stamp) %>% 
+  group_by(leg) %>% 
+  mutate(strat_fwd_rtn = cumprod(1 + leg_fwd_rtn)) %>% 
+  ungroup() %>% drop_na() %>% 
+  ggplot(aes(x = date_stamp, y = strat_fwd_rtn)) +
+  geom_line() +
+  #geom_hline(yintercept = 1, color = "black") + 
+  facet_wrap(vars(leg)) +
+  labs(x = '',
+       y = '',
+       title = 'Custom momentum factor cumulative returns',
+       subtitle = 'Monthly average returns to long / short decile portfolios formed on prior 12 month returns',
+       caption = 'Source: SEC EDGAR database for fundamental values informing universe contruction and Alpha Vantage for stock prices') +
+  scale_y_continuous(breaks = seq(-1,10,0.5)) +
+  scale_x_date(date_breaks = '2 years',
+               date_labels = '%Y') +
+  def_theme1 #+
+  #theme(
+  #  panel.grid.major.x = element_blank(),
+  #  panel.grid.minor.x = element_blank()
+  #)
+
+```
+
+
+<br>
+<br>
+
+This strategy has certainly improved the performance of the short leg, but at the expense of the extremely profitable periods that reduce aggregate volatility.    
+
+At this point we will finish with the analysis of individual stock data and note a couple of points.  The negative returns to the short leg, and the characteristic of periods in which large draw downs to the long leg are offset by high profitability in the short leg.
+
+<br>
+<br>
+
+---
+
+<br>
+<br> 
+
+## Public data  
+
+We now compare the results derived from a bottom up approach using personally acquired data, to the public aggregate data set.  
+
+Firstly, an important point in relation to portfolio formation.  The custom data set forms portfolios (i.e. creates the decile breakpoints) at month t and records at month t the subsequent returns for period t to t +1.  The public data set forms portfolios at month t -1, and records returns for the period t -1 to t.  In order to make these series comparable, a month lead is applied to the public data.  In addition to this, the public data excludes the most recent month from the returns used in assessing momentum.  This is the approach used in the original [paper](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=299107) identifying the momentum effect.  This different formation approach remains.
+
+The portfolio data is aggregated on an equal weighted basis so as to be comparable to the custom portfolios.  Likewise, a truncated approach is used to mitigate the impact of extreme returns.  While I don't expect data errors to result in outliers to the same extent as in the custom data, given the expanded universe[^2] and inclusion of many more smaller capitilisation stocks, extreme returns are to be expected.  
+
+[^2]: The public data is not limited to the top 1,000 largest stocks like the custom data. 
+
+<br>
+<br>
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, cache=FALSE}
+# Fetch French data library data
+if (!exists('ff_10_mom_fctr_raw')) {
+  if(file.exists('ff_10_mom_fctr_raw.Rda')) {
+    ff_10_mom_fctr_raw <- readRDS('ff_10_mom_fctr_raw.Rda')
+  } else {
+    base <- "http://mba.tuck.dartmouth.edu/pages/faculty/ken.french/ftp/"
+    factor <- "10_Portfolios_Prior_12_2"
+    format <- "_CSV.zip"
+    full_url <- paste(base, factor, format, sep = "")
+    temp <- tempfile()
+    download.file(url = full_url, destfile = temp, quiet = TRUE)
+    ff_10_mom_fctr_raw <- read_csv(unz(temp, "10_Portfolios_Prior_12_2.CSV"), skip = 10)
+    colnames(ff_10_mom_fctr_raw) <- gsub(" ", "_", colnames(ff_10_mom_fctr_raw))
+    saveRDS(ff_10_mom_fctr_raw, file = "ff_10_mom_fctr_raw.Rda")
+  }
+}
+```
+
+
+```{r echo=FALSE, message=FALSE, warning=FALSE, cache=FALSE}
+# Contains multiple data sets / metrics (value weighted, equal weighted, etc).
+# Use data in the problems data frame created by read_csv to insert reference to individual data sets
+ff_10_mom_fctr_raw_prob <- problems(ff_10_mom_fctr_raw) %>% 
+  filter(nchar(actual) > 20)
+
+ff_10_mom_fctr <- ff_10_mom_fctr_raw 
+
+# Label first data set - this is not in the problems data frame
+ff_10_mom_fctr[1, 'reference'] <- 'Average Value Weighted Returns -- Monthly'
+
+# Loop to insert data set labels
+for (i in 1:nrow(ff_10_mom_fctr_raw_prob)) {
+  ff_10_mom_fctr[ff_10_mom_fctr_raw_prob[i,1][[1]], 'reference'] <- ff_10_mom_fctr_raw_prob[i,4]
+}
+
+# Construct FF momentum factor
+ff_10_mom_fctr <- ff_10_mom_fctr %>% 
+  rename(date_stamp = X1) %>% 
+  fill(reference) %>% 
+  mutate(
+    date_stamp = as.Date(paste0(as.character(date_stamp), '01'), format='%Y%m%d'),
+    date_stamp = ceiling_date(date_stamp, unit = "month") - 1,
+    ff_mom_dcl1_fwd_rtn = lead(round(Lo_PRIOR/100, 3)),
+    ff_mom_dcl10_fwd_rtn= lead(round(Hi_PRIOR/100, 3)),
+    ff_mom_dcl_rtn      = round(Hi_PRIOR/100 - Lo_PRIOR/100, 3),
+    ff_mom_dcl_fwd_rtn  = lead(ff_mom_dcl_rtn),
+    ff_mom_23_rtn       = round((PRIOR_2/100 + PRIOR_3/100)/2, 3),
+    ff_mom_23_fwd_rtn   = lead(ff_mom_23_rtn),
+    ff_mom_89_rtn       = round((PRIOR_8/100 + PRIOR_9/100)/2, 3),
+    ff_mom_89_fwd_rtn   = lead(ff_mom_89_rtn),
+    ff_mom_2389_rtn     = round((PRIOR_8 + PRIOR_9)/200 - (PRIOR_2 + PRIOR_3)/200, 3),
+    ff_mom_2389_fwd_rtn = lead(ff_mom_2389_rtn)
+  ) %>% 
+  drop_na()
+
+# Join custom and public data sets
+all_momentum <- inner_join(momentum_fctr, filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), by = 'date_stamp')
+
+```
+
+### Cumulative returns
+
+We will start comparing cumulative returns across data sets.
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+all_momentum %>% 
+  filter(
+    date_stamp > as.Date('2011-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+    ) %>% 
+  pivot_longer(
+    cols = c(ff_mom_dcl_fwd_rtn, ff_mom_2389_fwd_rtn, mom_dcl_fwd_rtn, mom_2389_fwd_rtn),
+    names_to = 'label', 
+    values_to = 'fwd_returns'
+  ) %>% 
+  arrange(label, date_stamp) %>% 
+  group_by(label) %>% 
+  mutate(
+    method = case_when(
+      label == 'ff_mom_2389_fwd_rtn' ~ 'Truncated',
+      label == 'mom_2389_fwd_rtn' ~ 'Truncated',
+      TRUE ~ 'Traditional'
+      ),
+    data_source = case_when(
+      label == 'ff_mom_2389_fwd_rtn' ~ 'Public',
+      label == 'ff_mom_dcl_fwd_rtn' ~ 'Public',
+      TRUE ~ 'Custom'
+      ),    
+    fwd_cum_rtn = cumprod(1 + fwd_returns),
+  ) %>% 
+  drop_na() %>% 
+  ggplot(aes(x = date_stamp, y = fwd_cum_rtn, linetype = data_source)) +  #, color = data_source
+  geom_line() +
+  facet_wrap(vars(method)) +
+  labs(x = '',
+       y = '',
+       title = 'Public and custom momentum factor cumulative returns',
+       subtitle = 'Monthly average returns to long / short decile portfolios formed on prior 12 month returns',
+       caption = 'Source: SEC EDGAR database for fundamental values informing universe\ncontruction and Alpha Vantage for stock prices French Data Library') +
+  scale_y_continuous(breaks = seq(1,2,0.5)) +
+  scale_x_date(date_breaks = '2 years',
+               date_labels = '%Y') + 
+  def_theme1
+
+```
+
+<br>
+<br>
+
+
+The overall pattern in cumulative returns is similar across the custom and public data sets.  The magnitude of returns differs in the latter half of the series especially for the traditional approach.  We can see the series drift apart during the 2017 to 2019.  
+
+Looking at the long and short legs separately. 
+
+
+<br>
+<br>
+
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+ptfl_long <- all_momentum %>%
+  filter(
+    date_stamp > as.Date('2011-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+    ) %>% 
+  pivot_longer(
+    cols = c(
+      ff_mom_dcl1_fwd_rtn, ff_mom_dcl10_fwd_rtn, ff_mom_23_fwd_rtn, 
+      ff_mom_89_fwd_rtn, dcl_1, dcl_10, mom_23_fwd_rtn, mom_89_fwd_rtn
+      ),
+    names_to = 'label', 
+    values_to = 'fwd_returns'
+  ) %>% 
+  arrange(label, date_stamp) %>% 
+  group_by(label) %>% 
+  mutate(
+    leg = case_when(
+      label == 'ff_mom_dcl1_fwd_rtn' ~ 'Short',
+      label == 'ff_mom_23_fwd_rtn' ~ 'Short',
+      label == 'dcl_1' ~ 'Short',
+      label== 'mom_23_fwd_rtn' ~ 'Short',
+      TRUE ~ 'Long'
+      ),
+    fwd_returns = if_else(leg == 'Short', -fwd_returns, fwd_returns),
+    method = case_when(
+      label == 'ff_mom_23_fwd_rtn' ~ 'Truncated',
+      label == 'ff_mom_89_fwd_rtn' ~ 'Truncated',
+      label == 'mom_23_fwd_rtn' ~ 'Truncated',
+      label == 'mom_89_fwd_rtn' ~ 'Truncated',
+      TRUE ~ 'Traditional'
+      ),
+    data_source = case_when(
+      label == 'ff_mom_dcl1_fwd_rtn' ~ 'Public',
+      label == 'ff_mom_dcl10_fwd_rtn' ~ 'Public',
+      label == 'ff_mom_23_fwd_rtn' ~ 'Public',
+      label == 'ff_mom_89_fwd_rtn' ~ 'Public',
+      TRUE ~ 'Custom'
+      ),
+    #fwd_returns = if_else(label == 'ff_mom_dcl1_fwd_rtn' | label == 'ff_mom_dcl10_fwd_rtn', fwd_returns/100, fwd_returns),
+    fwd_cum_rtn = cumprod(1 + fwd_returns)
+  ) %>% 
+  drop_na() 
+
+ptfl_long %>% 
+  ggplot(aes(x = date_stamp, y = fwd_cum_rtn, linetype = data_source)) +
+  geom_line() +
+  facet_grid(vars(leg), vars(method), scales = 'free_y') +
+  labs(x = '',
+       y = '',
+       title = 'Public and custom momentum factor cumulative returns',
+       subtitle = 'Monthly average returns to long / short decile portfolios formed on prior 12 month returns',
+       caption = 'Source: SEC EDGAR database for fundamental values informing universe contruction and Alpha Vantage for stock prices\nFrench Data Library (https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  scale_x_date(date_breaks = '2 years',
+               date_labels = '%Y') +
+  def_theme1 + theme(legend.position = c(0.9,0.95))
+```
+
+<br>
+<br>
+
+The series look much more alike when separated into long and short legs.  The short leg appears to be the main driver of the differing returns. As expected, the two data sets appear more alike when constructed using the truncated approach.  
+
+The table below shows the full period volatility of each of the series.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+ptfl_long %>% 
+  group_by(method, data_source) %>% 
+  summarise(stdev = sd(fwd_returns)) %>% 
+  datatable(options = list(dom = 't'), rownames= FALSE, colnames=c('Method', 'Data source', 'Standard deviation of returns')) %>% 
+  formatPercentage(c('stdev'), 2)
+```
+
+<br>
+<br>
+
+Consistent with the plots, the difference in volatility between the truncated portfolios (custom versus public) is lower than that of the traditional portfolio.  
+
+Can we rely on the similarity between the public momentum and custom momentum portfolios to such an extent that they are substitutable?  If so, we can use the longer public data set to test characteristics of the strategy which can then be implemented using the custom data.  Eyeballing the truncated data suggests the answer to that question might be yes.  
+
+### Correlations and volatility  
+
+Before we conclude, lets look at the correlation between series and compare volatility in more detail.  First, correlations.  
+
+The plot below shows the correlation between the custom and public data sets by period (pre 2017, post 2017 and the full series), and by strategy leg (long, short and combined).
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+mom_cor <- cor.test(~ mom_2389_fwd_rtn + ff_mom_2389_fwd_rtn, 
+  data = all_momentum, 
+  method = 'pearson')
+mom_cor_17 <- cor.test(~ mom_2389_fwd_rtn + ff_mom_2389_fwd_rtn, 
+  data = filter(all_momentum, date_stamp <= as.Date('2017-12-31')),
+  method = 'pearson')
+mom_cor_18 <- cor.test(~ mom_2389_fwd_rtn + ff_mom_2389_fwd_rtn, 
+  data = filter(all_momentum, date_stamp > as.Date('2017-12-31')),
+  method = 'pearson')
+
+mom_long_cor <- cor.test(~ mom_89_fwd_rtn + ff_mom_89_fwd_rtn, 
+  data = all_momentum, 
+  method = 'pearson')
+mom_long_cor_17 <- cor.test(~ mom_89_fwd_rtn + ff_mom_89_fwd_rtn, 
+  data = filter(all_momentum, date_stamp <= as.Date('2017-12-31')),
+  method = 'pearson')
+mom_long_cor_18 <- cor.test(~ mom_89_fwd_rtn + ff_mom_89_fwd_rtn, 
+  data = filter(all_momentum, date_stamp > as.Date('2017-12-31')),
+  method = 'pearson')
+
+mom_short_cor <- cor.test(~ mom_23_fwd_rtn + ff_mom_23_fwd_rtn, 
+  data = all_momentum, 
+  method = 'pearson')
+mom_short_cor_17 <- cor.test(~ mom_23_fwd_rtn + ff_mom_23_fwd_rtn, 
+  data = filter(all_momentum, date_stamp <= as.Date('2017-12-31')),
+  method = 'pearson')
+mom_short_cor_18 <- cor.test(~ mom_23_fwd_rtn + ff_mom_23_fwd_rtn, 
+  data = filter(all_momentum, date_stamp > as.Date('2017-12-31')),
+  method = 'pearson')
+
+correlations <- c(
+  unname(mom_cor$estimate), 
+  unname(mom_cor_17$estimate),
+  unname(mom_cor_18$estimate),
+  unname(mom_long_cor$estimate),
+  unname(mom_long_cor_17$estimate),
+  unname(mom_long_cor_18$estimate),
+  unname(mom_short_cor$estimate),
+  unname(mom_short_cor_17$estimate),
+  unname(mom_short_cor_18$estimate)
+  )
+corr_leg <- c(rep('Combined',3), rep('Long',3), rep('Short',3))
+corr_period <- rep(c('Full', 'pre 2017', 'post 2017'), 3)
+cor_df <- data.frame(corr_leg, corr_period, correlations)
+
+ggplot(cor_df, aes(x = corr_leg, y = correlations, fill = corr_period)) + 
+  geom_col(position=position_dodge(width = 0.93)) +
+  #scale_fill_brewer('Assessment\nperiod', palette = 'Blues')
+  scale_fill_grey('Assessment\nperiod', start = 0.7, end = 0.4) +
+  #scale_fill_hue('Assessment\nperiod', l = 70, c = 30, h = c(180, 300) + 60) +
+  labs(x = '', y = '',
+     title = 'Correlation between custom and public momentum returns',
+     subtitle = 'Analysing legs and sub-periods',
+     caption = 'Source: SEC EDGAR database for fundamental values informing universe contruction and Alpha Vantage for stock prices\nFrench Data Library (https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  def_theme1 + theme(legend.position = "bottom")
+```
+
+<br>
+<br>
+
+Observations:  
+1. The correlation between the traditional and truncated approaches for the long and short legs is greater than that for the combined strategy,  
+2. The correlations are consistent across sub-periods,   
+3. The correlations are high, in the 90% range.  
+
+These observations are consistent with the cumulative return plots above.  Nothing presented here would make us change our mind as to the substitutability of these series.  
+
+Now comparing volatility, the plot below compares the average monthly volatility across the same facets described above.  
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+vol_data <- c(
+  sd(all_momentum$mom_2389_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum$ff_mom_2389_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp <= as.Date('2017-12-31'), ]$mom_2389_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp <= as.Date('2017-12-31'), ]$ff_mom_2389_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp > as.Date('2017-12-31'), ]$mom_2389_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp > as.Date('2017-12-31'), ]$ff_mom_2389_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  
+  sd(all_momentum$mom_89_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum$ff_mom_89_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp <= as.Date('2017-12-31'), ]$mom_89_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp <= as.Date('2017-12-31'), ]$ff_mom_89_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp > as.Date('2017-12-31'), ]$mom_89_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp > as.Date('2017-12-31'), ]$ff_mom_89_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  
+  sd(all_momentum$mom_23_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum$ff_mom_23_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp <= as.Date('2017-12-31'), ]$mom_23_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp <= as.Date('2017-12-31'), ]$ff_mom_23_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp > as.Date('2017-12-31'), ]$mom_23_fwd_rtn, na.rm = TRUE) * sqrt(12),
+  sd(all_momentum[all_momentum$date_stamp > as.Date('2017-12-31'), ]$ff_mom_23_fwd_rtn, na.rm = TRUE) * sqrt(12)
+)
+
+vol_leg <- c(rep('Combined',6), rep('Long',6), rep('Short',6))
+vol_period <- rep(c('Full','Full', 'pre 2017', 'pre 2017', 'post 2017', 'post 2017'), 3)
+vol_src <- rep(c('Custom', 'Public'),9)
+vol_df <- data.frame(vol_leg, vol_period, vol_src, vol_data)
+
+ggplot(vol_df, aes(x = vol_period, y = vol_data, fill = vol_src)) + 
+  geom_col(position=position_dodge(width = 0.93)) +
+  #scale_fill_brewer('Implementation\ntype', palette = 'Blues') +
+  scale_fill_grey('Data\nsource', start = 0.7, end = 0.4) +
+  #scale_fill_hue('Implementation\ntype', l = 70, c = 30, h = c(180, 300) + 60) +
+  facet_wrap(vars(vol_leg)) +
+  labs(x = '', y = '',
+     title = 'Volatility of custom and public momentum returns',
+     subtitle = 'Analysing long / short legs for the truncated approach',
+     caption = 'Source: SEC EDGAR database for fundamental values informing universe contruction and Alpha Vantage for stock prices\nFrench Data Library (https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  def_theme1 + theme(legend.position = "bottom")
+```
+
+<br>
+<br>
+
+The immediate observation is the high volatility of the short leg post 2017.  This is consistent with the initial cumulative return plots presented above.  The volatility differential between the custom and public data is not significant except for the combined strategy post 2017.  The short leg is driving this difference.
+
+Based on the visual similarity, the similar correlations, and similar volatility, we close this portion of analysis concluding that the two truncated portfolios (that derived bottom up from the custom data, and that constructed from the public data) are sufficiently alike so as to use the public data set as a proxy for the custom data set.  
+
+Let's now turn to analysing the public data in its entirety.
+
+<br>
+<br>
+
+## Public data - full series  
+
+The analyse thus far has been limited to periods for which the custom data is available (post 2012).  
+
+The public data set covers the period from 1930 to present.  It is this that we will now look at with the caveat that analysis will be limited to the post 1950 period.  We will focus on a period more closely resembling the current era.  
+
+This section will explore this data in a similar manner heretofore; looking at returns to each leg and inspecting portfolio returns and volatility.  Co-variation with macro variables will also be addressed.
+
+First we plot cumulative returns for the aggregate strategy, and also for each leg.
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+cbp1 <- c("#999999", "#E69F00", "#56B4E9", "#009E73",
+          "#F0E442", "#0072B2", "#D55E00", "#CC79A7")
+
+ff_10_mom_fctr %>%
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31'),
+    reference == 'Average Equal Weighted Returns -- Monthly'
+  ) %>% 
+  mutate(
+    ff_mom_dcl_fwd_cum_rtn = log(cumprod(1 + ff_mom_2389_fwd_rtn)),
+    ff_mom_23_fwd_cum_rtn = log(cumprod(1 - ff_mom_23_fwd_rtn)),
+    ff_mom_89_fwd_cum_rtn = log(cumprod(1 + ff_mom_89_fwd_rtn))
+  ) %>% 
+  ggplot() +
+  geom_line(aes(x = date_stamp, y = ff_mom_dcl_fwd_cum_rtn, color = 'Combined')) +
+  geom_line(aes(x = date_stamp, y = ff_mom_23_fwd_cum_rtn, color = 'Short'), linetype = 'twodash') +
+  geom_line(aes(x = date_stamp, y = ff_mom_89_fwd_cum_rtn, color = 'Long'), linetype = 'twodash') +
+  scale_color_manual(name = 'Leg', values = cbp1) + 
+  labs(x = '', 
+       y = '',
+       title = 'Cumulative returns to public momentum',
+       subtitle = 'Truncated approach, log scale',
+       caption = 'Source: French Data Library\n(https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  #scale_y_continuous(breaks = seq(1,2,0.5)) +
+  scale_x_date(date_breaks = '10 years',
+               date_labels = '%Y')  +
+  def_theme1 + theme(legend.position = c(0.9,0.8))
+```
+
+<br>
+<br>
+
+This calls things out in pretty stark terms.  The over all strategy is profitable but the divergence between the long and short legs is huge.  Why even both with the short leg?  Research has shown that it is predominately the long leg driving returns for number of equity factors, see [When equity factors drop their shorts](https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3493305) for 
+example.  So while the sign of the returns to each leg is to be expected, the magnitude is surprising.  At this stage it is worth pointing out that traditionally defined factors are weighted by market capitalisation and are first sorted on size.  From the [data library](https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/Data_Library/det_mom_factor.html) explanation of the momentum factor:
+
+>  "We use six value-weight portfolios formed on size and prior (2-12) returns to construct momentum. The portfolios, which are formed monthly, are the intersections of 2 portfolios formed on size (market equity, ME) and 3 portfolios formed on prior (2-12) return. The monthly size breakpoint is the median NYSE market equity. The monthly prior (2-12) return breakpoints are the 30th and 70th NYSE percentiles.  
+
+>  Momentum is the average return on the two high prior return portfolios minus the average return on the two low prior return portfolios."
+
+I suspect the short leg of the portfolio defined above will have better performance than the truncated equal weighted portfolios created for this analysis.  The small high volatility stocks that are a return drag have a smaller impact in market capitalisation weighted portfolios.  
+
+Other significant observation include the large draw downs in 1975 and 2008; the largely consistent positive returns (driven by the long leg); and the period in the early 70's when the short leg offset the long legs losses, thus contributing to aggregate profitability.   
+
+<br>
+
+### Trailing volatlity
+
+We revisit volatility as a conditioning factor on momentum returns.  The analysis of the public data will focus on trailing volatility of market returns (proxied by the S&P 500 index), as opposed to individual stock returns within the portfolio under analysis.  Remember, the public data does not contain individual stock returns so we cannot do this.  The plot below shows momentum strategy returns and trailing 20 day volatility. 
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+# Labels
+labs <- sp_500_monthly %>% left_join(
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  ) %>% 
+  filter(dense_rank(ff_mom_2389_fwd_rtn) <= 5 | dense_rank(desc(ff_mom_2389_fwd_rtn)) <= 2 | dense_rank(desc(sp500_vol_ari_20d)) <= 5) %>% 
+  mutate(date_string = format(date_stamp, "%b-%y"))
+
+# Plot
+sp_500_monthly %>% left_join(
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  ) %>% 
+  #ggplot(aes(x = ff_mom_2389_fwd_rtn, y = sp500_vol_ari_20d)) + 
+  ggplot(aes(x = sp500_vol_ari_20d, y = ff_mom_2389_fwd_rtn)) + 
+  geom_point() +
+  #geom_vline(xintercept = 0, linetype = 'longdash', color = 'grey') +
+  geom_hline(yintercept = 0, linetype = 'longdash', color = 'grey') +
+  stat_smooth(method = 'gam', formula = y ~ s(x), size = 0.6, colour = 'grey') +
+  geom_text(
+    data = labs,
+    label = labs$date_string,
+    check_overlap = TRUE,
+    size = 3,
+    nudge_x = 0.04
+    ) +
+  labs(y = 'Forward momentum factor returns',
+       x = 'Trailing market volatilty',
+       title = 'Momentum returns and volatility',
+       subtitle = 'Trend line defined with GAM smoother',
+       caption = 'Source: French Data Library\n(https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  def_theme1
+```
+
+The smooth regression line suggests a tendency for momentum portfolio returns to be negative following periods of high volatility.  We can see that the regression line become negative once volatility exceeds 25%.  Note also the outlying data points. It is interesting to note that the returns in October 1987, the month of the Black Monday crash are unremarkable.   
+
+What about by long and short leg?
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+labs1 <- sp_500_monthly %>% left_join(
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  select(date_stamp, sp500_vol_ari_20d, ff_mom_23_fwd_rtn, ff_mom_89_fwd_rtn) %>% 
+  pivot_longer(cols = c(ff_mom_23_fwd_rtn, ff_mom_89_fwd_rtn), names_to = 'Leg', values_to = 'fwd_rtn') %>% 
+  mutate(
+    fwd_rtn = if_else(Leg == 'ff_mom_23_fwd_rtn', -fwd_rtn, fwd_rtn),
+    Leg = if_else(Leg == 'ff_mom_23_fwd_rtn', 'Short', 'Long')   # for facet labels
+    ) %>% 
+  inner_join(select(labs, !sp500_vol_ari_20d), by = 'date_stamp') %>% 
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  )
+
+clrs <- c(Y = 'black', N = 'grey54')
+
+sp_500_monthly %>% left_join(
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  select(date_stamp, sp500_vol_ari_20d, ff_mom_23_fwd_rtn, ff_mom_89_fwd_rtn) %>% 
+  pivot_longer(cols = c(ff_mom_23_fwd_rtn, ff_mom_89_fwd_rtn), names_to = 'Leg', values_to = 'fwd_rtn') %>% 
+  mutate(
+    color_lab = as.factor(if_else(date_stamp %in% labs$date_stamp, 'Y','N')),
+    fwd_rtn = if_else(Leg == 'ff_mom_23_fwd_rtn', -fwd_rtn, fwd_rtn),
+    Leg = if_else(Leg == 'ff_mom_23_fwd_rtn', 'Short', 'Long')   # for facet labels
+    ) %>% 
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  ) %>% 
+  ggplot(aes(y = fwd_rtn, x = sp500_vol_ari_20d, color = color_lab)) + 
+  geom_point() +
+  stat_smooth(method = 'gam', formula = y ~ s(x), size = 0.6, colour = 'grey') +
+  geom_hline(yintercept = 0, linetype = 'longdash', color = 'grey') +
+  geom_text(
+    data = labs1,
+    label = labs1$date_string,
+    colour = 'black',
+    check_overlap = TRUE,
+    size = 3,
+    nudge_x = 0.07,
+    nudge_y = 0.01
+    ) +
+  #coord_cartesian(xlim = c(0, 0.625), ylim = c(-0.2, 0.2)) +
+  facet_grid(cols = vars(Leg)) + 
+  scale_color_manual(values = clrs) +
+  labs(
+    y = 'Forward momentum leg returns',
+    x = 'Trailing volatilty',
+    title = 'Momentum returns and volatility by long and short leg',
+    subtitle = 'Trend line defined with GAM smoother',
+    caption = 'Source: French Data Library\n(https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  def_theme1 + theme(legend.position = "none")
+```
+
+It is now apparent the effect of trailing volatility differs across legs. Moving from very low to average volatility increases returns for the long leg.  It is then only as volatility increases further do returns decrease.  Whereas for the short leg, as volatility increases, returns decrease monotonically.  This appears to be in contrast to the individual stock data which suggest low volatility stocks in the short portfolio deliver positive returns.  A lot needs to be done to tease out the various effects driving this observation, and that is beyond the scope of this analysis.
+
+The observations above raise a couple of questions.  It would be interesting to compare returns to the standard truncated strategy with returns to the same strategy conditioned on prior month volatility.  The chart below does this, if prior month volatility is greater than 25%, the strategy stays out of the market.  
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+inner_join(
+  sp_500_monthly,
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  ) %>% 
+  mutate(
+    vol_signal = if_else(sp500_vol_ari_20d > .25, 0, 1),
+    strat_rtn = ff_mom_2389_fwd_rtn * vol_signal
+  ) %>% 
+  drop_na(strat_rtn) %>% 
+  ggplot() +
+  geom_line(aes(x = date_stamp, y = log(cumprod(1 + strat_rtn)), color = 'Volatility filtered')) +
+  geom_line(aes(x = date_stamp, y = log(cumprod(1 + ff_mom_2389_fwd_rtn)), color = 'Unfiltered')) +
+  geom_vline(xintercept = as.Date('2008-09-30'), linetype = 'longdash', color = 'grey') +
+  annotate("text", x = as.Date('2008-09-30'), y = 4.4, label = format(as.Date('2008-09-30'), "%b-%Y"), size = 3, fontface = 'italic', hjust = -0.1) + #, color = "blue")
+  scale_color_manual(name = 'Strategy', values = cbp1) + 
+  labs(
+    x = '',
+    y = '',
+    title = 'Public data momentum factor cumulative returns',
+    subtitle = 'Strategy is out of market when trailing monthly volatility is greater than 25%',
+    caption = 'Source: French Data Library\n(https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  scale_x_date(date_breaks = '10 years',
+               date_labels = '%Y')  +
+  def_theme1 + theme(legend.position = c(0.9,0.7))
+```
+
+That would have gotten us out of a pickle during the financial crisis during September 2008 (with a bit of hindsight of course!), but is not helping anywhere else.  
+
+Lets apply the same concept, but conditioning on the long and short legs individually.  
+
+We will indulge ourselves and optimise the volatility filtering rule iterating over different cut-off values.  Why an indulgence?  Again, we are peaking into the future here.  This is not a valid analysis should we wish to rely on these rules going forward.
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+data <- inner_join(
+  sp_500_monthly,
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  )
+
+opt_vol <- function(data, col) {
+  
+  # Function to find optimal volatility cut-off 
+  vol_cut0 <- function(data, vol_cutoff, col) {
+    int1 <- col * if_else(data$sp500_vol_ari_20d > vol_cutoff, 0, 1)
+    int2 <- log(cumprod(1 + int1))
+    int2[length(int2)]
+  }
+  
+  # Find max & min
+  vals <- seq(0.05, 0.7, by = 0.05)
+  output <- numeric(length(vals))
+  counter <- 1
+  for (i in vals) {
+    output[counter] <- vol_cut0(data, i, col)
+    counter = counter + 1
+  }
+  
+  return(list(max = vals[which.max(output)], min = vals[which.min(output)]))
+
+}
+
+```
+
+The optimal volatility cut-off for the long portfolio is `r opt_vol(data, data$ff_mom_89_fwd_rtn)$max`, and for the short portfolio `r opt_vol(data, data$ff_mom_23_fwd_rtn)$min`.  This very low filter effectively turns the short portfolio off.  Not surprising given what we now know about the short leg. This may not be the optimal approach should it's inclusion lower overall portfolio volatility, or put another way, if its diversification benefit raises the sharpe ratio.  
+
+As an aside, it would be interesting to determine if using daily trailing volatility of the momentum portfolio returns (as opposed to market volatility) is a better timing indicator.  This is doable, daily data is available in the French Data Library, however for now we will leave this exercise for another time.  
+
+Back to the point at hand, below is plot of the optimised portfolios referred to above.
+
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+inner_join(
+  sp_500_monthly,
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  filter(
+    date_stamp > as.Date('1949-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  ) %>% 
+  mutate(
+    strat_rtn = ff_mom_2389_fwd_rtn * if_else(sp500_vol_ari_20d > .25, 0, 1),
+    short_strat_rtn = ff_mom_23_fwd_rtn * if_else(sp500_vol_ari_20d > .05, 0, 1),
+    long_strat_rtn = ff_mom_89_fwd_rtn * if_else(sp500_vol_ari_20d > .35, 0, 1),
+    opt_strat_rtn = long_strat_rtn - short_strat_rtn
+  ) %>% 
+  drop_na(strat_rtn) %>% 
+  ggplot() +
+  geom_line(aes(x = date_stamp, y = log(cumprod(1 + strat_rtn)), color = 'Naive optimisation (25%)')) +
+  geom_line(aes(x = date_stamp, y = log(cumprod(1 - short_strat_rtn)), color = 'Volatility optimised short')) +
+  geom_line(aes(x = date_stamp, y = log(cumprod(1 + long_strat_rtn)), color = 'Volatility optimised long')) +
+  geom_line(aes(x = date_stamp, y = log(cumprod(1 + opt_strat_rtn)), color = 'Volatility optimised combined')) +
+  scale_color_manual(name = 'Strategy', values = cbp1) + 
+  labs(x = '',
+       y = '',
+       title = 'Optimised momentum strategy cumulative returns',
+       subtitle = 'Strategy is out of market when trailing monthly volatility is greater than 25%',
+    caption = 'Source: French Data Library\n(https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)') +
+  scale_x_date(date_breaks = '10 years',
+               date_labels = '%Y')  +
+  def_theme1 + theme(legend.position = c(0.85,0.6))
+```
+
+<br>
+
+The short leg speaks for itself. As stated, since it is delivering negative returns, the goal seek has set the filter at such a low level as to effectively disallow investing in this portfolio.  The line labelled *Naive optimisation (25%)* is the same as that labelled *Volatility filtered* in the preceding plot.  It is pretty obvious applying a volatility filter to the long strategy is optimal.  
+
+At this point I am going to finish the analysis on volatility, concluding with the point that volatility filtering can enhance the long leg, but not save the short.
+
+<br>
+<br>
+
+## Covariance with macro variables
+
+Most studies that look at some type of "factor" or "anomaly" in the stock market, look at co-variation with macroeconomic variables.  I am not going to go into a lot of detail here.  Rather, a couple of high level plots investigating obvious relationships appearing at first pass.  We will look at economic growth and interest rates.  You can of course go to town with this sort of thing and other variables usually include financial conditions, credit growth, consumer sentiment, etc.   
+
+### Economic growth  
+
+I'm going to use the CFNAI diffusion index to proxy for economic growth.  The [CFNAI](https://www.chicagofed.org/publications/cfnai/index) index is:  
+
+>  "a weighted average of 85 existing monthly indicators of national economic activity. It is constructed to have an average value of zero and a standard deviation of one. Since economic activity tends toward trend growth rate over time, a positive index reading corresponds to growth above trend and a negative index reading corresponds to growth below trend"  
+
+The [CFNAI diffusion index](https://fred.stlouisfed.org/series/CFNAIDIFF) is:  
+
+>  "calculated as the sum of the absolute values of the underlying indicators whose contribution to the CFNAI is positive in a given month less the sum of the absolute values of the weights for those indicators whose contribution is negative or neutral, expressed as a proportion of the total sum of the absolute values of the weights"  
+
+The upper panel of the plot below shows cumulative returns to the truncated momentum strategy shaded with periods in which the forward 6 month return is less than negative 20%.  We are calling out forward draw downs with this plot.  The aim is to identify times when we do not want to be invested in the strategy.  The lower panel has the same shading as the upper panel, this time over the Chicago Fed National Activity Index (CFNAI) diffusion index.  The idea is to highlight potential relationships between the state of the index and forward returns.  
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+econ_data <- readRDS('C:/Users/brent/Documents/R/Misc_scripts/econ_fin_data.Rda')
+
+plot_data <- inner_join(
+  mutate(econ_data, date_stamp = date %m+% months(1) %m-% days(1)),
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+    filter(
+    date_stamp > as.Date('1969-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  ) %>% 
+  select(date_stamp, ff_mom_2389_rtn, ff_mom_2389_fwd_rtn, CFNAIDIFF, FEDFUNDS) %>% 
+  mutate(ff_mom_2389 = cumprod(1 + ff_mom_2389_rtn)) %>% 
+  drop_na() 
+
+plot = ts_segmentation(
+  df = plot_data, 
+  date_idx = date_stamp, 
+  invest_series = ff_mom_2389,
+  invest_name = 'Momentum strategy',
+  cndtn_series = CFNAIDIFF, 
+  cndtn_name = 'CFNAI diffusion index',
+  bin_method = both
+  )
+
+plot[[1]]
+```
+
+It is pretty hard to find a discernible pattern here, but we might say troughs in the CFNAI index tend to precede large draw downs. 
+
+<br>
+
+Next, let's see if discretising the CFNAI into equal frequency bins can help elucidate relationship between the series. The plot below has 18 facets.  Let's start with the top 6.  These represent bins defined as the intersection of periods when the CFNAI level is considered high, low or medium; and when its 6 month change is either positive or negative.  The following two rows are the same bins lagged 6 and 12 months.  The density plots show the returns when the series is in the bin specified, and all other times.  The value labeled *KS pvalue* is the p value derived from the two sample Kolmogorov-Smirnov test.  The intuition behind this approach is to tease out potential non-linearities and interaction effects that a traditional regression model may miss.  
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+plot[[2]]
+```
+
+The one significant facet above is that highlighting periods when the un-lagged CFNAI index is low and increasing (top row, four across).  When the market is in this state the subsequent monthly returns to the momentum strategy are 2% lower than at all other times.  This appears consistent with the time series analysis in that the very large draw down in 2008 coincides with the CFNAI index increasing from a very low level.  It is possible that this single data point is driving the result seen.
+
+<br>
+
+#### Interest rates
+
+The plot below shows the momentum strategy and yield spread.  The yield spread being the excess of the 10 year treasury rate over the 2 year treasury rate.   
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+plot_data1 <- inner_join(
+  mutate(econ_data, date_stamp = date %m+% months(1) %m-% days(1)),
+  filter(ff_10_mom_fctr, reference == 'Average Equal Weighted Returns -- Monthly'), 
+  by = 'date_stamp'
+  ) %>% 
+  select(date_stamp, ff_mom_2389_rtn, ff_mom_2389_fwd_rtn, CFNAIDIFF, FEDFUNDS, UNRATE, GS10, GS2) %>% 
+  mutate(
+    ff_mom_2389 = cumprod(1 + ff_mom_2389_rtn),
+    yld_sprd = GS10 - GS2
+  ) %>% 
+  drop_na() 
+
+plot1 = ts_segmentation(
+  df = plot_data1, 
+  date_idx = date_stamp, 
+  invest_series = ff_mom_2389,
+  invest_name = 'Momentum strategy',
+  cndtn_series = yld_sprd, 
+  cndtn_name = 'Yield spread',
+  bin_method = both
+  )
+
+plot1[[1]]
+```
+
+If anything we might say the major draw downs occur only when the yield spread is rising.  The relationship seems to be quite weak.
+
+<br>
+
+Now to the density plots of subsequent returns. 
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+plot1[[2]]
+```
+
+As suspected, very little in the way of a significant relationship with the exception of one facet.  Periods with low and increasing yield spread lagged 6 months (second row, four across) has historically seen 1% higher forward monthly returns than other times.  This is a weaker effect than that observed with the CFNAI index, the difference in mean is smaller and the p value is higher.  I wonder if this represents periods that correspond to the last part of bull markets?  An increasing yield curve is traditionally a signal of recession and bull markets typically go exponential before recessions drag them down.
+
+<br>
+<br> 
+
+---
+
+<br>
+<br> 
+
+### Conclusion
+
+I set out to answer couple of questions with this analysis.
+
+First, compare a bottom up creation of momentum portfolios to the industry standard definition thereof.  Are these substitutable?  The answer to this is yes, with a few caveats.  We must use a truncated portfolio construction technique, discarding the two end deciles.  We must also use equal weighted returns.  Why is it that only after using these specific portfolio construction techniques are the data sets similar?  This is due to the different investable universes available for each data set.  The custom data contains the top 1,000 stocks by size (measured with accounting variables, assets and equity).  In contrast the public data set is a much expanded universe, essentially all US stocks.  Different combinations of volatile stocks lead to different returns, and I suspect the end portfolios embody this more than other decile portfolios.  What about the requirement for equal weighting?  This is simple, I haven't gone to the trouble of constructing weighted returns for the custom data.  
+
+Second, do the long and short legs of the momentum strategy perform equally?  This is a clear cut no.  The short leg is rarely profitable, the long leg consistently so. A little more nuance to this would point out that there are periods when the short leg offsets losses in the long.
+
+Last, how does the momentum effect co-vary with economic growth and interest rates.  Using the CFNAI index as a proxy for economic growth, we see that the momentum strategy performs poorly when the CFNAI index is low and increasing.  A weaker relationship is observed with the yield spread, periods with a low and increasing lagged yield spread see slightly higher forward returns.  
+
+Over the course of the above analysis we also examined volatility as a conditioning factor on momentum returns.  Filtering out low volatility stocks in the cross section, and filtering the time series implementation so as to invest only during low volatility periods both enhanced returns.  How these effects interact requires further analysis.
+
+<br>
+
+## Limitations & further investigation
+There are of course limitations to any analysis.  The investigation of momentum portfolios has been that of an exploratory data analysis, there has been no inference from explanatory variables or prediction into future returns.  The binning approach to assessing macro variable is a rather rudimentary technique, and should form only a starting point for more detailed analysis.  Bins make interpretation easy but throw away information.  See the notes at the bottom of this [post](https://brentmorrison.netlify.app/post/time-series-segmentation-and-plotting/) discussing same.  
+
+Further investigation.  I suppose your imagination is the limit here.  From my perspective, a few points of interest.  Further investigations might look at regressing both legs of the momentum portfolios against the macro variables, market volatility and the strategies trailing volatility. Using the volatility of daily returns of the public data set may provide better signals in this type of regression.  The comparison of custom and public data sets could be extended to look at the similarity between series as measured by [Dynamic time warping](https://en.wikipedia.org/wiki/Dynamic_time_warping).  Lastly, we could compare the market capitalisation weighted and equal weighted end decile portfolios of the public data set in order to determine if small capitalisation stocks are contributing to the volatility of these portfolios.  
+
+
+<br>
+
+---
+
+<br> 
+
+### Bonus
+
+The analysis below doesn't fit neatly anywhere else in this post.  I thought this might be interesting however.  Here we look at the monotonicity of the momentum deciles.  Are returns increasing with each decile? This is assessed using the Spearmans rank correlation between returns to each of the deciles and the decile bin number.  
+
+Presented without comment.  
+
+<br>
+<br>
+
+```{r echo=FALSE, fig.height=6.375, fig.width=8.5, message=FALSE, warning=FALSE}
+ff_10_mom_fctr %>% 
+  filter(reference == 'Average Equal Weighted Returns -- Monthly') %>% 
+  pivot_longer(cols = Lo_PRIOR:Hi_PRIOR, names_to = 'decile') %>% 
+  mutate(decile_no = rep(1:10, 1130)) %>% 
+  group_by(date_stamp) %>% 
+  summarise(spearman_mon = cor(value, decile_no, method = 'spearman')) %>% 
+  filter(
+    date_stamp > as.Date('1969-12-31'), 
+    date_stamp <= as.Date('2020-12-31')
+  ) %>% 
+  ggplot(aes(spearman_mon)) +
+  geom_histogram(bins = 21, fill = "gray50", col = "grey") +
+  labs(x = 'Spearman correlation',
+       y = 'Count of months',
+       title = 'Spearman correlation of decile bin and factor returns',
+       caption = 'Source: French Data Library\n(https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html)'
+       ) +
+  def_theme1
+```
+
