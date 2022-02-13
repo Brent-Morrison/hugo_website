@@ -1,0 +1,387 @@
+---
+title: "Rethinking Likelihood"
+author: "Brent Morrison"
+date: '2021-10-30'
+slug: rethinking-likelihood
+categories: Regression
+tags:
+- Statistics
+- R
+description: ''
+topics: []
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+<script src="/rmarkdown-libs/htmlwidgets/htmlwidgets.js"></script>
+<script src="/rmarkdown-libs/jquery/jquery.min.js"></script>
+<link href="/rmarkdown-libs/datatables-css/datatables-crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/datatables-binding/datatables.js"></script>
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.min.css" rel="stylesheet" />
+<link href="/rmarkdown-libs/dt-core/css/jquery.dataTables.extra.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/dt-core/js/jquery.dataTables.min.js"></script>
+<link href="/rmarkdown-libs/crosstalk/css/crosstalk.css" rel="stylesheet" />
+<script src="/rmarkdown-libs/crosstalk/js/crosstalk.min.js"></script>
+
+
+<p>I recently finished reading <a href="https://xcelab.net/rm/statistical-rethinking/">Statistical Rethinking</a> by Richard McElreath. The reviews are true, it’s a great book. As a bonus, it comes with 20 hours of supporting <a href="https://www.youtube.com/watch?v=4WVelCswXo4&amp;list=PLDcUM9US4XdNM4Edgs7weiyIguLSToZRI">lectures</a> taking you through the content.</p>
+<p>Statistical Rethinking is an introduction to statistical modelling using Bayesian methods. Bayesian methods seem pretty popular at the moment, so whats the deal? To distill it into a couple of lines, Bayesian methods provide a distribution for model parameters and allow for incorporation of prior knowledge. This contrasts with frequentist methods which produce parameter point estimates and are limited to learning from data alone. The distribution of parameter values is called the posterior distribution and this represents the relative plausibility of different parameter values, conditional on the data and model. Having a posterior distribution comes in handy for expressing uncertainty in inference or prediction.</p>
+<p>As stated in the preface, the book takes the philosophy that you will understand something better if you can see it working and implemented in code (preferably by yourself). The first method Statistical Rethinking introduces for computing a models posterior distribution is grid approximation. Grid approximation is one method of using the prior, the likelihood and data to estimate the posterior by applying <a href="https://en.wikipedia.org/wiki/Bayes%27_theorem">Bayes’ theorem</a>. In this post, I’m going to apply the books philosophy and calculate the posterior of human height data, manually, using grid approximation. In so doing, I will also need an estimation of the likelihood, and we will look into a couple of different ways to do this. The work on likelihood will use mock data.</p>
+<p>Intuition comes when you look at problems from different angles. The concept of the likelihood has been a struggle, so fleshing it out multiple ways will help.</p>
+<p>Overall, the purpose of this post is to convince myself that I have a decent grasp of how all this stuff works.</p>
+<p><br></p>
+<div id="grid-approximation" class="section level2">
+<h2>Grid approximation</h2>
+<blockquote>
+<p><em>“We can achieve an excellent approximation of the continuous posterior distribution by considering
+only a finite grid of parameter values. At any particular value of a parameter, <strong>p</strong>, it is simply a
+matter to compute the posterior probability: just multiply the prior probability <strong>OF p</strong> by the
+likelihood <strong>AT p</strong>, repeating this procedure for each value in the grid<a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.”</em></p>
+</blockquote>
+<div id="data" class="section level3">
+<h3>Data</h3>
+<p>We will start off fitting a normal distribution to data provided in the <a href="https://github.com/rmcelreath/rethinking">Rethinking</a> R package. The Rethinking package accompanies the Statistical Rethinking text and is principally a teaching tool. As such it enforces an extended syntax. The idea being that exposing all modelling choices forces users to think about the modelling process in detail, encouraging an understand of what is going on “under the hood”. The package also includes a number of data sets.</p>
+<p>The data in question is heights of a population under study. Fitting a normal distribution is equivalent to fitting a linear regression model that contains only an intercept.</p>
+<p>This is a essentially a re-performance of code block 4.16 from the text. I’m not the first to look at this. See <a href="https://poissonisfish.com/2019/05/01/bayesian-models-in-r/">here</a>, <a href="https://rileyking.netlify.app/post/bayesian-modeling-of-censored-and-uncensored-fatigue-data-in-r/">here</a>, and <a href="https://allendowney.github.io/ThinkBayes2/hospital.html">here</a>.</p>
+<p>This is what the data looks like.</p>
+<pre class="r"><code># Required packages
+library(rethinking)
+
+# Data
+data(Howell1)
+d &lt;- Howell1
+d2 &lt;- d[d$age &gt;= 18, ]
+
+# Plot using rethinking function
+plot(density(d2$height), main = &#39;Height data (cm)&#39;)</code></pre>
+<p><img src="/post/2021-10-30-rethinking-likelihood_files/figure-html/unnamed-chunk-1-1.png" width="792" /></p>
+<p>We can see there are 352 records and the average is somewhere near 155 centimeters.</p>
+</div>
+<div id="likelihood" class="section level3">
+<h3>Likelihood</h3>
+<p>The text book definition of the likelihood is the <em>“probability of the data given a parameter value”</em>. There are many other ways to get the concept across. The explanation that gels most with me is:</p>
+<blockquote>
+<p><em>“the relative plausibility of the data, conditional on a parameter value”</em>.</p>
+</blockquote>
+<p>That comes from McElreath, as does,</p>
+<blockquote>
+<p><em>“a likelihood is a prior for the data”</em>, and <em>“the likelihood is the relative number of ways that a parameter can produce the data”</em>.</p>
+</blockquote>
+<p>I think I can reconcile those three. Here is another soundbite type definition,</p>
+<blockquote>
+<p><em>“the conditional distribution of the data given the parameters”</em>, from the same source <em>“this is called a likelihood because for a given pair of data and parameters it registers how ‘likely’ is the data”</em>.<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a></p>
+</blockquote>
+<p>As stated, I struggled grasping this concept. Code will help.</p>
+<p>Before attacking the problem with the data mentioned above, lets work through an extremely simple example.</p>
+<p><br></p>
+<hr />
+<p><br></p>
+</div>
+<div id="an-intuitive-example-of-likelihood" class="section level3">
+<h3>An intuitive example of likelihood</h3>
+<p>The very simple example below should help fleshing out the quoted definitions in the paragraph above.</p>
+<p>First we take some data and estimate the mean and standard deviation.</p>
+<pre class="r"><code># Some data
+dat &lt;- c(148, 149, 150, 151, 152)
+
+# The mean and standard deviation (150 &amp; 1.58) thereof
+c(mean(dat), sd(dat)) </code></pre>
+<pre><code>## [1] 150.000000   1.581139</code></pre>
+<p>We create a data frame containing this data, and include columns for a mean and standard deviation. Three repeats of the 5 records are made. The first, labelled “A”, correspond to the population mean and standard deviation (150 and 1.58), the next two, labelled “B” and “C”, have a mean and standard deviation that is slightly different. We will use the columns containing the difference mean and standard deviation to calculate the log-likelihood<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>.</p>
+<pre class="r"><code>df &lt;- data.frame(
+  param_set = rep(c(&#39;A&#39;,&#39;B&#39;,&#39;C&#39;), each = 5),
+  mu = c(rep(150,10), rep(160,5)),
+  sigma = c(rep(1.6, 5), rep(7, 5), rep(1.6, 5)),
+  data = rep(dat, 3)
+  )</code></pre>
+<p>Now to calculate the log-likelihood and view the results.</p>
+<pre class="r"><code># Calculate the log-likelihood for each data point
+df$log_lik &lt;- sapply(df[,2:4], dnorm, x = df$dat, mean = df$mu, sd = df$sigma)[,1]
+df$log_lik &lt;- round(df$log_lik,3)
+
+# View
+library(DT)
+datatable(df, options = list(autoWidth = FALSE, searching = FALSE))# %&gt;% format(&#39;log_lik&#39;, 1)</code></pre>
+<div id="htmlwidget-1" style="width:100%;height:auto;" class="datatables html-widget"></div>
+<script type="application/json" data-for="htmlwidget-1">{"x":{"filter":"none","data":[["1","2","3","4","5","6","7","8","9","10","11","12","13","14","15"],["A","A","A","A","A","B","B","B","B","B","C","C","C","C","C"],[150,150,150,150,150,150,150,150,150,150,160,160,160,160,160],[1.6,1.6,1.6,1.6,1.6,7,7,7,7,7,1.6,1.6,1.6,1.6,1.6],[148,149,150,151,152,148,149,150,151,152,148,149,150,151,152],[-2.17,-1.584,-1.389,-1.584,-2.17,-2.906,-2.875,-2.865,-2.875,-2.906,-29.514,-25.022,-20.92,-17.209,-13.889]],"container":"<table class=\"display\">\n  <thead>\n    <tr>\n      <th> <\/th>\n      <th>param_set<\/th>\n      <th>mu<\/th>\n      <th>sigma<\/th>\n      <th>data<\/th>\n      <th>log_lik<\/th>\n    <\/tr>\n  <\/thead>\n<\/table>","options":{"autoWidth":false,"searching":false,"columnDefs":[{"className":"dt-right","targets":[2,3,4,5]},{"orderable":false,"targets":0}],"order":[],"orderClasses":false}},"evals":[],"jsHooks":[]}</script>
+<p>Finally we sum the log-likelihood for each set of mean and standard deviation provided.</p>
+<pre class="r"><code>aggregate(. ~ param_set, data = df[,c(&#39;param_set&#39;, &#39;log_lik&#39;)], sum)</code></pre>
+<pre><code>##   param_set  log_lik
+## 1         A   -8.897
+## 2         B  -14.427
+## 3         C -106.554</code></pre>
+<p>Leaning on our definition above, the three values returned represents <em>the relative plausibility of seeing the data assuming the parameters</em>. The maximum log-likelihood belongs to parameter set A. This is of course as expected, the first example has the exact same parameters as the underlying data. The data is more ‘likely’ to arise with these parameters.</p>
+<p>What we have done here is measure the ways parameters can produce the data. We have assumed the data comes from a specific distribution (normal in this case), and compared the expected value for different sets of parameters. The <code>dnorm</code> function allows us to perform this comparison and is explained in more detail below.</p>
+<p>Note that the exercise above can be replicated in an excel spreadsheet quite easily. The NORM.DIST and LN functions can be used to calculate the log-likelihood.</p>
+<p>We can also perform this in a more succinct manner as shown below. Identical to the previous example, we calculate log-likelihood, firstly using the exact mean and standard deviation, then with differing mean and standard deviation for the same data set.</p>
+<pre class="r"><code>ll_a &lt;- sum(dnorm(x = dat, mean = 150, sd = 1.6, log = TRUE))   # same parameters
+ll_b &lt;- sum(dnorm(x = dat, mean = 150, sd = 10, log = TRUE))    # different parameters
+ll_c &lt;- sum(dnorm(x = dat, mean = 160, sd = 1.6, log = TRUE))   # different parameters
+
+c(ll_a, ll_b, ll_c)</code></pre>
+<pre><code>## [1]   -8.897836  -16.157618 -106.554086</code></pre>
+<p>Again, the three values returned represents the relative plausibility of seeing the data assuming the parameters.</p>
+<p><br></p>
+<hr />
+<p><br></p>
+<p>OK, back to the data set at hand. Below we perform grid approximation proper.</p>
+<div id="log-likelihood---step-1" class="section level4">
+<h4>Log-likelihood - step 1</h4>
+<p>Referencing the grid approximation definition I first quoted above, we create a data structure for the <em>"at any particular value of a parameter, p</em>" component. We create a grid for combinations of means and standard deviations for which the likelihood is calculated over. The code below cross joins 100 mu’s and 100 sigmas for 10,000 distinct combinations. These are the parameters we are trying to calculate a posterior distribution over.</p>
+<pre class="r"><code>mu_list &lt;- seq(from = 140, to = 170, length.out = 100)
+sigma_list &lt;- seq(from = 7, to = 9, length.out = 100)
+post &lt;- expand.grid(mu = mu_list, sigma = sigma_list)</code></pre>
+</div>
+<div id="log-likelihood---step-2" class="section level4">
+<h4>Log-likelihood - step 2</h4>
+<p>For each of the 10,000 combinations of mu and sigma, calculate the sum of the probability density function for each of 352 values of height. This is the <em>“likelihood at p”</em> component.</p>
+<p>We will use the function <code>dnorm</code> to do this. Before getting into the details, it is a good idea to take note of what exactly <code>dnorm</code> is doing.</p>
+<p>The function <code>dnorm</code> returns the value of the probability density function (“pdf”) for the normal distribution given some data and values for the mean (mu), and standard deviation (sigma). <code>dnorm</code> will give us the “height” of the pdf of the normal distribution at whatever value of data (x) we provide. The height of the pdf represents the relative probability of getting the value of x assuming the data is normally distributed, and also assuming the mu and sigma parameters supplied.<a href="#fn4" class="footnote-ref" id="fnref4"><sup>4</sup></a></p>
+<p>Again, referencing the definition of grid approximation above, the code below calculates the <em>“likelihood AT p”</em> component. For exposition purposes, we will do this in both a vectorised and looped manner.</p>
+<pre class="r"><code># Vectorised using sapply
+post$ll &lt;- sapply(
+  X = 1:nrow(post),
+  FUN = function(i) sum(dnorm(x = d2$height, mean = post$mu[i], sd = post$sigma[i], log = TRUE))
+)
+
+# Repeating the above sapply construction of log-likelihood, using a for loop
+ll_via_loop &lt;- vector(mode = &quot;double&quot;, length = nrow(post)) 
+for (mu_sigma in 1:nrow(post)) {
+  ll_height &lt;- vector(mode = &quot;double&quot;, length = nrow(d2))
+  for (height in 1:nrow(d2)) {
+    ll_height[height] &lt;- dnorm(x = d2$height[height], mean = post$mu[mu_sigma], sd = post$sigma[mu_sigma], log = TRUE)
+  }
+  ll_via_loop[mu_sigma] = sum(ll_height)
+}
+
+# Assign to df
+post$ll2 &lt;- ll_via_loop
+
+# Check we are returning the same results
+sum(abs(post$ll - post$ll2))</code></pre>
+<pre><code>## [1] 0</code></pre>
+<p>Good, we now have a likelihood. It look like this.</p>
+<pre class="r"><code>image_xyz(post$mu, post$sigma, post$ll, col =gray.colors(25, start = 0.1, end = 0.9, rev = TRUE), xlab = &quot;mean&quot;, ylab = &quot;standard deviation&quot;)</code></pre>
+<p><img src="/post/2021-10-30-rethinking-likelihood_files/figure-html/unnamed-chunk-9-1.png" width="792" /></p>
+<p>The darker shading represents higher log-likelihoods. The maximum log likelihood is:</p>
+<pre class="r"><code>post[which.max(post$ll), c(&quot;mu&quot;, &quot;sigma&quot;, &quot;ll&quot;)]</code></pre>
+<pre><code>##            mu    sigma        ll
+## 3649 154.5455 7.727273 -1219.413</code></pre>
+</div>
+</div>
+<div id="prior" class="section level3">
+<h3>Prior</h3>
+<p>The prior in a modelling context is the <em>“probability of a parameter value”</em>. A prior embodies our knowledge before seeing any data, or to put it another way, represents the prior plausibility of a parameter value. For the problem at hand, we will select a mean of 178cm and standard deviation of 20cm. 178cm is the average male height and we will imagine we have not seen the particular data set presented above. A standard deviation of 20 assumes 2/3 of the population will be between 158cm and 198cm and 95% between 138cm and 218cm. That seems very broad and as such would be considered a weak prior. It does not encode a strong assumption as a specific prior plausibility.</p>
+</div>
+<div id="compute-the-product-of-likelihood-and-priors" class="section level3">
+<h3>Compute the product of likelihood and priors</h3>
+<p>This is the numerator of Bayes’ theorem. We add as opposed to multiply these since we are using logs. This gives us the unstandardised posterior.</p>
+<p>The comments in the code below show how our prior is accounted for.</p>
+<pre class="r"><code>post$prod &lt;- 
+  post$ll +                                                 # log-likelihood per above
+  dnorm(x = post$mu, mean = 178, sd = 20, log = TRUE) +     # prior for mean (normal)
+  dunif(x = post$sigma, min = 0, max = 50, log = TRUE)      # prior for standard deviation (uniform)</code></pre>
+<p>We now have an unstandardised posterior, this is scaled with the code below to produce a posterior probability. Note that the code below adds the line given in <a href="https://stats.stackexchange.com/questions/371491/understanding-bayesian-model-code-from-chapter-4-of-statistical-rethinking">this</a> post, ensuring the posterior sums to one.</p>
+<pre class="r"><code>post$prob &lt;- exp(post$prod - max(post$prod))
+post$prob &lt;- post$prob/sum(post$prob)</code></pre>
+<p>Lets look at the parameters associated with the maximum posterior probability.</p>
+<pre class="r"><code>post[which.max(post$prob), c(&quot;mu&quot;, &quot;sigma&quot;, &quot;ll&quot;, &quot;prob&quot;)]</code></pre>
+<pre><code>##            mu    sigma        ll        prob
+## 3649 154.5455 7.727273 -1219.413 0.007992941</code></pre>
+<p>It is worth noting that the parameters associated with the <strong>maximum likelihood</strong> and the <strong>maximum posterior probability</strong> are identical. That won’t always be the case. In this case it indicates that the data has overwhelmed the relatively weekly informative prior.</p>
+<p>Here is a plot of the posterior distribution.</p>
+<pre class="r"><code>#contour_xyz(post$mu, post$sigma, post$prob)
+image_xyz(post$mu, post$sigma, post$prob, col = gray.colors(25, start = 0.1, end = 0.9, rev = TRUE), xlab = &quot;mean&quot;, ylab = &quot;standard deviation&quot;, xlim = c(150,160), ylim= c(7,8.5))</code></pre>
+<p><img src="/post/2021-10-30-rethinking-likelihood_files/figure-html/unnamed-chunk-14-1.png" width="792" /></p>
+<p>The parameter values associated with higher posterior probability are much more focused than parameter values associated with high likelihoods. This is because of the impact of the prior. Parameters with low prior probability have been down weighted.</p>
+</div>
+</div>
+<div id="an-alternate-derivation-of-the-log-likelihood" class="section level2">
+<h2>An alternate derivation of the log-likelihood</h2>
+<p>I mentioned I was going to look at this from a couple of different perspectives.</p>
+<p><a href="https://stats.stackexchange.com/questions/112451/maximum-likelihood-estimation-mle-in-layman-terms">This</a> stack overflow answer explaining Maximum Likelihood Estimation provides another angle to looking at the likelihood. This example calculates the likelihood using a function, and then optimises the parameters of that function to maximise the log-likelihood. The author has created a grid, not for the purpose of posterior estimation, but rather as a demonstration tool for the optimisation performed.</p>
+<p>I’m going to use the log-likelihood grid created using this alternate method to estimate a posterior, and then use the method applied above to hopefully arrive at the same result.</p>
+<p>In this case we have two parameters to estimate, an intercept and slope of a linear model.</p>
+<p>To start we create some mock data. The parameters to retrieve are alpha and beta, the intercept and slope of the linear model.</p>
+<pre class="r"><code>set.seed(123)
+n &lt;- 200
+alpha &lt;- 9
+beta &lt;- 2
+sigma &lt;- 0.8
+theta = c(alpha, beta, sigma)
+data &lt;- data.frame(x = runif(n, 1, 10))
+data$y &lt;- alpha + beta*data$x + rnorm(n, 0, sigma)
+
+plot(data$x, data$y)</code></pre>
+<p><img src="/post/2021-10-30-rethinking-likelihood_files/figure-html/unnamed-chunk-15-1.png" width="792" /></p>
+<p>The log-likelihood function.</p>
+<pre class="r"><code>linear.lik &lt;- function(theta, y, X){
+  n      &lt;- nrow(X)
+  k      &lt;- ncol(X)
+  beta   &lt;- theta[1:k]
+  sigma2 &lt;- theta[k+1]^2
+  e      &lt;- y - X%*%beta
+  logl   &lt;- -.5*n*log(2*pi)-.5*n*log(sigma2)-((t(e) %*% e)/(2*sigma2))
+  return(-logl)
+}</code></pre>
+<p>Note that the line of code defining the “logl” above (the value returned by the function) is performing the same function as <code>dnorm</code> in the grid approximation method. It is estimating the <em>“likelihood at p”</em>.</p>
+<p>Next, the log-likelihood function is applied to the parameter values. The code below is similar to the grid approximation method. In this case the grid is created on the fly with nested for loops.</p>
+<pre class="r"><code>surface &lt;- list()
+k &lt;- 0
+for(alpha in seq(8, 10, 0.1)){
+  for(beta in seq(0, 3, 0.1)){
+    for(sigma in seq(0.1, 2, 0.1)){
+      k &lt;- k + 1
+      logL &lt;- linear.lik(theta = c(alpha, beta, sigma), y = data$y, X = cbind(1, data$x))
+      surface[[k]] &lt;- data.frame(alpha = alpha, beta = beta, sigma = sigma, logL = -logL)
+    }
+  }
+}</code></pre>
+<p>Now we find the maximum of the log-likelihood (the MLE) using R’s optimisation function <code>optim</code>.</p>
+<pre class="r"><code>linear.MLE &lt;- optim(
+  fn=linear.lik, 
+  par=c(1,1,1), 
+  lower = c(-Inf, -Inf, 1e-8), 
+  upper = c(Inf, Inf, Inf), 
+  hessian=TRUE, 
+  y=data$y, 
+  X=cbind(1, data$x), 
+  method = &quot;L-BFGS-B&quot;
+  )
+
+linear.MLE$par</code></pre>
+<pre><code>## [1] 9.0742422 1.9875715 0.7677577</code></pre>
+<p>The first two numbers represent maximum likelihood estimates of the alpha and beta parameters. The third is sigma. With this we have successfully retrieved the parameters values invoked when mocking up the data.</p>
+<p>Let’s estimate the parameters using a couple of different methods.</p>
+<p>Parameters associated with the maximum log-likelihood via interrogation of the surface grid (this is equivalent to the grid used in grid approximation).</p>
+<pre class="r"><code>surfacedf &lt;- data.frame(do.call(rbind, surface))
+surfacedf[which.max(surfacedf$logL), ]</code></pre>
+<pre><code>##      alpha beta sigma      logL
+## 6608     9    2   0.8 -231.4109</code></pre>
+<p>These by definition have to be one of the entries in the grid, and so are slightly different to that obtained via the optimisation of the log-likelhood function.</p>
+<p>Here is the parameter estimation using ordinary least squares via base R’s <code>lm</code> function.</p>
+<pre class="r"><code>lm(y ~ x, data = data)</code></pre>
+<pre><code>## 
+## Call:
+## lm(formula = y ~ x, data = data)
+## 
+## Coefficients:
+## (Intercept)            x  
+##       9.074        1.988</code></pre>
+<p>And finally the true parameters.</p>
+<pre class="r"><code>theta</code></pre>
+<pre><code>## [1] 9.0 2.0 0.8</code></pre>
+<p>Similar to the height data, we can plot the log-likelihood over the grid range chosen as so.</p>
+<pre class="r"><code>surfacedf_mean &lt;- aggregate(logL ~ alpha + beta, data = surfacedf[,c(&#39;alpha&#39;, &#39;beta&#39;, &#39;logL&#39;)], sum)
+image_xyz(surfacedf_mean$alpha, surfacedf_mean$beta, surfacedf_mean$logL, col = gray.colors(100, start = 0.1, rev = TRUE), xlab = &quot;alpha&quot;, ylab = &quot;beta&quot;)</code></pre>
+<p><img src="/post/2021-10-30-rethinking-likelihood_files/figure-html/unnamed-chunk-22-1.png" width="792" /></p>
+</div>
+<div id="grid-approximation-1" class="section level2">
+<h2>Grid approximation</h2>
+<p>Returning to grid approximation. Below we estimate parameters using the original grid approximation method.</p>
+<pre class="r"><code># Grid - we will use the &#39;surface&#39; data frame created above
+post2 &lt;- surfacedf
+
+# Log-likelihood
+post2$ll &lt;- sapply(
+  X = 1:nrow(post2),
+  FUN = function(i) sum(dnorm(
+    x    = data$y,                                   # Note that it is the dependent variable here 
+    mean = post2$alpha[i] + (post2$beta[i] * data$x), 
+    sd   = post2$sigma[i], 
+    log  = TRUE
+  ))
+)
+
+
+# Posterior
+post2$prod1 &lt;- 
+  post2$ll +                                                # log-likelihood per above
+  dnorm(x = post2$alpha , mean = 0, sd = 5, log = TRUE) +   # prior for alpha
+  dnorm(x = post2$beta  , mean = 0, sd = 5, log = TRUE) +   # prior for beta
+  dexp(x = post2$sigma , rate = 1, log = TRUE)              # prior for standard deviation
+
+
+# Relative posterior probability
+post2$prob1 &lt;- exp(post2$prod1 - max(post2$prod1))
+post2$prob1 &lt;- post2$prob1/sum(post2$prob1)
+
+
+# MLE
+post2[which.max(post2$ll), c(&quot;alpha&quot;, &quot;beta&quot;, &quot;sigma&quot;, &quot;logL&quot;, &quot;ll&quot;)]</code></pre>
+<pre><code>##      alpha beta sigma      logL        ll
+## 6608     9    2   0.8 -231.4109 -231.4109</code></pre>
+<p>As expected, everything agrees.</p>
+<p><br></p>
+</div>
+<div id="rethinking-package" class="section level2">
+<h2>Rethinking package</h2>
+<p>As mentioned above, the Rethinking R package accompanies the Statistical Rethinking text and is principally a teaching tool. Rethinking includes a function called <code>quap</code>. This function performs a quadratic approximation to find the posterior distribution. To quote directly from the text.</p>
+<blockquote>
+<p><em>“Under quite general conditions, the region near the peak of the posterior distribution will be nearly Gaussian-or”normal“-in shape. This means the posterior distribution can be usefully approximated by a Gaussian distribution. A Gaussian distribution is convenient, because it can be completely described by only two numbers: the location of its center (mean) and its spread (variance).<br />
+A Gaussian approximation is called”quadratic approximation" because the logarithm of a Gaussian distribution forms a parabola. And a parabola is a quadratic function. So this approximation essentially represents any log-posterior with a parabola."</em><a href="#fn5" class="footnote-ref" id="fnref5"><sup>5</sup></a></p>
+</blockquote>
+<p>Below, parameters are estimated using quadratic approximation via <code>quap</code>.</p>
+<pre class="r"><code>reth_mdl &lt;- quap(
+  alist(
+    y ~ dnorm(mu, sigma),
+    mu &lt;- alpha + beta * x,
+    alpha ~ dnorm(0, 5),
+    beta ~ dnorm(0, 5),
+    sigma ~ dexp(1)
+  ) , data = data)
+
+precis(reth_mdl)</code></pre>
+<pre><code>##            mean         sd      5.5%     94.5%
+## alpha 9.0679471 0.13382486 8.8540691 9.2818251
+## beta  1.9885120 0.02202053 1.9533190 2.0237051
+## sigma 0.7662957 0.03820537 0.7052362 0.8273553</code></pre>
+<p>Once again, our parameters estimates are in agreement.<a href="#fn6" class="footnote-ref" id="fnref6"><sup>6</sup></a></p>
+<p>Finally, lets see if we can replicate the compatability intervals returned by <code>quap</code> above (the last two columns). To do this we will manually extract samples from the posterior distribution derived via grid approximation. The code below borrows from p. 55 - sections 3.3 &amp; 3.10, and p. 85 - section 4.19 of the Statistical Rethinking text.</p>
+<pre class="r"><code>sample_rows &lt;- sample(1:nrow(post2), size = 1e4, replace = TRUE, prob = post2$prob1)
+sample_alpha &lt;- post2$alpha[sample_rows]
+sample_beta &lt;- post2$beta[sample_rows]
+sample_sigma &lt;- post2$sigma[sample_rows]
+
+c(&#39;alpha&#39;, quantile(sample_alpha, c(0.055, 0.945)))</code></pre>
+<pre><code>##            5.5%   94.5% 
+## &quot;alpha&quot;   &quot;8.9&quot;   &quot;9.1&quot;</code></pre>
+<pre class="r"><code>c(&#39;beta&#39;, quantile(sample_beta, c(0.055, 0.945)))</code></pre>
+<pre><code>##          5.5%  94.5% 
+## &quot;beta&quot;    &quot;2&quot;    &quot;2&quot;</code></pre>
+<pre class="r"><code>c(&#39;sigma&#39;, quantile(sample_sigma, c(0.055, 0.945)))</code></pre>
+<pre><code>##            5.5%   94.5% 
+## &quot;sigma&quot;   &quot;0.7&quot;   &quot;0.8&quot;</code></pre>
+<p>These estimates match up reasonably well. Some values are slightly different and that is due to our grid not being granular enough to capture the variation in the continuous results returned by quadratic approximation.</p>
+</div>
+<div id="conclusion" class="section level2">
+<h2>Conclusion</h2>
+<p>With this post my aim has been to document my thoughts and learning in relation to the intuition of bayesian inference. A big part of this learning process is the concept of the likelihood. This is definitely the hardest concept to grasp and is also the most computationally intense. As such it has been covered in detail, going back to first principles.</p>
+<p>I think I now have, to quote myself, “a decent grasp of how all this stuff works”. In addition, the analysis above will serve as a nice reference point going forward.</p>
+</div>
+<div id="references" class="section level2">
+<h2>References</h2>
+<p><a href="https://xcelab.net/rm/statistical-rethinking/" class="uri">https://xcelab.net/rm/statistical-rethinking/</a><br />
+<a href="https://en.wikipedia.org/wiki/Bayes%27_theorem" class="uri">https://en.wikipedia.org/wiki/Bayes%27_theorem</a><br />
+<a href="https://github.com/rmcelreath/rethinking" class="uri">https://github.com/rmcelreath/rethinking</a><br />
+<a href="https://poissonisfish.com/2019/05/01/bayesian-models-in-r/" class="uri">https://poissonisfish.com/2019/05/01/bayesian-models-in-r/</a><br />
+<a href="https://rileyking.netlify.app/post/bayesian-modeling-of-censored-and-uncensored-fatigue-data-in-r/" class="uri">https://rileyking.netlify.app/post/bayesian-modeling-of-censored-and-uncensored-fatigue-data-in-r/</a><br />
+<a href="https://allendowney.github.io/ThinkBayes2/hospital.html" class="uri">https://allendowney.github.io/ThinkBayes2/hospital.html</a><br />
+<a href="https://www.psychologicalscience.org/observer/bayes-for-beginners-probability-and-likelihood" class="uri">https://www.psychologicalscience.org/observer/bayes-for-beginners-probability-and-likelihood</a><br />
+<a href="https://www.image.ucar.edu/pub/TOY07.4/nychka2a.pdf" class="uri">https://www.image.ucar.edu/pub/TOY07.4/nychka2a.pdf</a><br />
+<a href="https://rpsychologist.com/likelihood/" class="uri">https://rpsychologist.com/likelihood/</a><br />
+<a href="https://stats.stackexchange.com/questions/112451/maximum-likelihood-estimation-mle-in-layman-terms" class="uri">https://stats.stackexchange.com/questions/112451/maximum-likelihood-estimation-mle-in-layman-terms</a><br />
+<a href="https://www.uio.no/studier/emner/matnat/math/STK4180/v16/clp_oct2015_pages1to205.pdf" class="uri">https://www.uio.no/studier/emner/matnat/math/STK4180/v16/clp_oct2015_pages1to205.pdf</a><br />
+<a href="https://seankross.com/notes/dpqr/" class="uri">https://seankross.com/notes/dpqr/</a><br />
+<a href="https://stats.stackexchange.com/questions/371491/understanding-bayesian-model-code-from-chapter-4-of-statistical-rethinking" class="uri">https://stats.stackexchange.com/questions/371491/understanding-bayesian-model-code-from-chapter-4-of-statistical-rethinking</a></p>
+</div>
+<div class="footnotes">
+<hr />
+<ol>
+<li id="fn1"><p>McElreath p40.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p><a href="https://www.image.ucar.edu/pub/TOY07.4/nychka2a.pdf">The Likelihood, the prior and Bayes Theorem</a><a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>Log-likelihood because using logs we can sum instead of taking the product (that’s just convenient). Also, logs work better when dealing with very small numbers, as is the case with likelihoods and priors.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+<li id="fn4"><p><a href="https://seankross.com/notes/dpqr/">This</a> site is a good reference, and forms the basis for this paragraph.<a href="#fnref4" class="footnote-back">↩︎</a></p></li>
+<li id="fn5"><p>McElreath p42.<a href="#fnref5" class="footnote-back">↩︎</a></p></li>
+<li id="fn6"><p>Note that calling the `<code>quap</code> function more than once in the same session can result in vastly different results. I will have to dive into the documentation to understand this.<a href="#fnref6" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
