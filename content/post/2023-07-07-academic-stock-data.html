@@ -1,0 +1,282 @@
+---
+title: "Academic stock data"
+author: "Brent Morrison"
+date: '2023-07-07'
+slug: academic-stock-data
+categories: Data
+tags:
+- Stocks
+- Database
+description: ''
+topics: []
+---
+
+<script src="/rmarkdown-libs/header-attrs/header-attrs.js"></script>
+
+
+<p>This post will introduce a couple of interesting datasets I recently stumbled upon. They contain historical stock return and fundamental data going back to`the 1980’s. Below I will outline the process by which I have made this data available, and perform an initial exploratory analysis.</p>
+<div id="background" class="section level2">
+<h2>Background</h2>
+<p>If you read this <a href="https://brentmorrison.netlify.app/post/stock-master/">post</a>, you will know I am collecting accounting and fundamental data for US stocks via the <a href="https://brentmorrison.netlify.app/post/stock-master/">SEC EDGAR</a> database. Price and other reference type data is also collected, and you can read about it <a href="https://github.com/Brent-Morrison/Stock_master">here</a>. The storage format is a PostgreSQL database.</p>
+<p>The SEC data referred to above starts in 2009, and the coverage in the earlier years is patchy. This lack of data is an issue.</p>
+<p>Why is that? I am using this data to model how a stocks characteristics (prior returns, valuation, quality, etc) influence its future returns. In doing that I am open to the possibility (it might be more accurate to say I expect) that the relationships between characteristics and returns change over time. Furthermore, it may be that these relationships change based on prevailing macroeconomic factors such as interest rates or growth, or market conditions like volatility. A hypothesis might be that high quality stocks outperform in an economic downturn. Or, stocks with strong prior returns only continue to outperform when volatility is low. Here’s the crutch. There is only one market downturn since 2009. There are limited volatility episodes, the period leading up to the financial crisis is omitted. This is an issue. Estimating a model based on an (expected) recurring phenomena requires as many occurrences of that phenomena as possible, especially when the data is noisy. The more data, the more robust the results.</p>
+<p>That’s were the new data I have found comes in.</p>
+</div>
+<div id="data" class="section level2">
+<h2>Data</h2>
+<p>Obviously it would be great if I had data going back to the early 1990’s covering a significant universe of stocks, the top 1,000 by market capitalisation for example. Sourcing that type of data however is not really feasible for a retail investor / hobbyist. The cost is prohibitive.</p>
+<p>If you are in an academic environment the <a href="https://wrds-www.wharton.upenn.edu/">WRDS</a> or <a href="https://www.crsp.org/">CRISP</a> databases are an option. This is where most of the research papers source data. This is also the source from which the well known <a href="https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html">Fama/French</a> factors are derived.</p>
+<p>Fortunately a couple of researchers have decided to make their work available. The website <a href="https://www.openassetpricing.com/data/">Open Source Asset Pricing</a> <em>“provides test asset returns and signals replicated from the academic asset pricing literature”</em>. It supports the paper by Chen and Zimmerman [1].</p>
+<p>The researchers responsible for “Empirical Asset Pricing via Machine Learning” [2] have published the underlying data for that paper on Dacheng Xiu’s website.</p>
+</div>
+<div id="data-load" class="section level2">
+<h2>Data load</h2>
+<p>The datasets referred to above are exposed in zipped csv format, which I downloaded locally to my machine. The initial intention was to use the psql <code>copy</code> command to load each of these into Postgres in a single function call for each file. That didn’t work out. I came up against the issues outlined <a href="https://www.postgresql.org/message-id/20181102233512.GD1899%40paquier.xyz">here</a> and <a href="https://stackoverflow.com/questions/53523051/error-could-not-stat-file-xx-csv-unknown-error">here</a>, whereby older versions of Postgres inadvertantly apply a size limit on the file that can be uploaded. Not a big deal, the data just had to be split into smaller portions as detailed in the code below.</p>
+<p>This R script reads data into a data frame using data.table, converts the text formatted date into a date type, breaks the data into smaller chunks, saves these to a temporary CSV file, and then loads that file to Postgres calling the psql <code>copy</code> command. Calling the psql command is done via the R <code>system</code> function.</p>
+<p>This process worked well, something like 5 million rows and circa 100 columns was inserted into the Postgres daabase in a couple of minutes.</p>
+<pre class="r"><code># Libraries
+library(data.table)
+library(lubridate)
+
+# Load data
+ 
+# Date stamp V1
+# https://www.openassetpricing.com/data/
+# Convert integer to date &amp; convert to prior month end (datashare.csv &gt;&gt; &#39;osap&#39; table)
+d &lt;- fread(&quot;C:/Users/brent/Documents/VS_Code/postgres/postgres/reference/datashare.csv&quot;)
+d[, date_stamp := strptime(DATE, format=&quot;%Y%m%d&quot;)]
+d[, date_stamp := as.Date(floor_date(date_stamp, &quot;month&quot;) - 1)]
+
+# Date stamp V2
+# https://dachxiu.chicagobooth.edu/download/datashare.zip
+# Convert integer to date &amp; make month end (signed_predictors_dl_wide.csv &gt;&gt; &#39;eapvml&#39; table)
+d &lt;- fread(&quot;C:/Users/brent/Documents/VS_Code/postgres/postgres/reference/signed_predictors_dl_wide.csv&quot;)
+d[, date_stamp := as.Date(paste0(as.character(yyyymm), &#39;01&#39;), format=&#39;%Y%m%d&#39;)]
+d[, date_stamp := date_stamp %m+% months(1) - 1]
+
+# Connect to stock_master db
+library(DBI)
+library(RPostgres)
+library(jsonlite)
+
+config &lt;- jsonlite::read_json(&#39;C:/Users/brent/Documents/VS_Code/postgres/postgres/config.json&#39;)
+
+con &lt;- DBI::dbConnect(
+  RPostgres::Postgres(),
+  host      = &#39;localhost&#39;,
+  port      = &#39;5432&#39;,
+  dbname    = &#39;stock_master&#39;,
+  user      = &#39;postgres&#39;,
+  password  = config$pg_password
+)
+
+# Create table schema with sample of data
+db_write &lt;- as.data.frame(d[permno == 14593, ])
+dbWriteTable(con, Id(schema = &quot;reference&quot;, table = &quot;osap&quot;), db_write)
+dbSendQuery(conn = con, statement = &quot;delete from reference.osap&quot;)
+
+# psql copy command
+# https://stackoverflow.com/questions/62225835/fastest-way-to-upload-data-via-r-to-postgressql-12
+URI &lt;- sprintf(&quot;postgresql://%s:%s@%s:%s/%s&quot;, &quot;postgres&quot;, config$pg_password, &quot;localhost&quot;, &quot;5432&quot;, &quot;stock_master&quot;)
+n &lt;- 100000
+w &lt;- floor(nrow(d) / n)
+r &lt;- nrow(d) %% (n * w)
+
+for (i in 1:(w+1)) {
+  if (i == 1) {
+    s &lt;- 1
+    e &lt;- n
+  } else if (i &lt;= w) {
+    s &lt;- s + n
+    e &lt;- e + n
+  } else {
+    s &lt;- s + n
+    e &lt;- e + r  
+  }
+  
+  print(paste0(s, &quot; to &quot;, e))
+  rng &lt;- s:e
+  fwrite(d[rng, ], &quot;temp.csv&quot;)
+  
+  system(
+    sprintf(
+      &quot;psql -U postgres -c \&quot;\\copy %s from %s delimiter &#39;,&#39; csv header\&quot; %s&quot;,
+      &quot;reference.osap&quot;, 
+      sQuote(&quot;temp.csv&quot;, FALSE), 
+      URI
+    )
+  )
+}
+
+DBI::dbDisconnect(con)</code></pre>
+<p><br></p>
+</div>
+<div id="analysis" class="section level2">
+<h2>Analysis</h2>
+<p>Let’s take a look at the data we have loaded. The plot below counts the number of stocks returned by date. This is using the ‘Empirical Asset Pricing via Machine Learning’ dataset.</p>
+<pre class="sql"><code>-- Result assigned to object &quot;eapvml&quot;
+select permno, date_stamp, mvel1, mom1m from reference.eapvml</code></pre>
+<pre class="r"><code># Libraries
+library(data.table)
+setDT(eapvml)
+
+# Plot number of stocks over time
+library(ggplot2)
+
+# Custom theme
+cstm_theme1 &lt;- theme_minimal() +
+  theme(
+    legend.title = element_blank(),
+    legend.position = c(0.9,0.9),
+    legend.background = element_blank(),
+    legend.key = element_blank(),
+    plot.caption = element_text(size = 8, color = &quot;grey55&quot;, face = &#39;italic&#39;), 
+    axis.title.y = element_text(size = 8, color = &quot;darkslategrey&quot;),
+    axis.title.x = element_text(size = 8, color = &quot;darkslategrey&quot;),
+    axis.text.y = element_text(size = 7, color = &quot;darkslategrey&quot;),
+    axis.text.x = element_text(size = 7, color = &quot;darkslategrey&quot;)
+    )
+
+ggplot(data=eapvml[, .(stocks_unq = length(unique(permno)), stocks_n = .N), by = date_stamp], 
+       aes(x=date_stamp, y=stocks_n, group=1)) +
+  geom_line() +
+  labs(
+    title = &quot;Count of unique stocks&quot;,
+    subtitle = &quot;Data supporting &#39;Empirical Asset Pricing via Machine Learning&#39;&quot;,
+    caption = &quot;Source: https://dachxiu.chicagobooth.edu/download/datashare.zip&quot;,
+    x = &#39;&#39;,
+    y = &#39;&#39;
+  ) +
+  cstm_theme1</code></pre>
+<p><img src="/post/2023-07-07-academic-stock-data_files/figure-html/r03-1.png" width="816" /></p>
+<p>Our data set has roughly 2,000 stocks per month until the mid 1970’s, thereafter they count per month shoots up to circa 5,000, rising to over 8,000 in the 1990’s. This coincides with the tech bubble, as does the decline after bursting of said bubble in 2000. Stocks per monthly increase after 2020, and I speculate that this is due to the SPAC phenomenon. The cause of the drastic increase in the mid 1970’s is not apparent. On that basis, it is prudent to limit analysis to after 1975.</p>
+<p>Next, we check that the return attributes in the academic data matches those independently collected from price data. The academic data has an attribute named <code>mom1m</code> which is the monthly arithmetic returns. We can also calculate returns from the change in market capitalisation, <code>mvel1</code><a href="#fn1" class="footnote-ref" id="fnref1"><sup>1</sup></a>.</p>
+<p>We need a specific stock to perform this comparison and that is where another issues raises it’s head. Individual stocks in the academic data are identified by their <a href="https://www.crsp.org/products/documentation/data-definitions-p#permno">permno</a>.</p>
+<blockquote>
+<p><em>“PERMNO is a unique permanent security identification number assigned by CRSP to each security. Unlike the CUSIP, Ticker Symbol, and Company Name, the PERMNO neither changes during an issue’s trading history, nor is it reassigned after an issue ceases trading.”</em></p>
+</blockquote>
+<p>Stocks in the Postgres database are identified by ticker or CIK (Central Index Key). At this point I do not have a mapping between the PERMNO and these two identifiers. AAPL has been the largest stock by market capitalisation over the last few years. Lets find the permno for AAPL, filtering for the largest value of the attribute <code>mvel1</code>, the market value of equity.</p>
+<pre class="sql"><code>select date_stamp, permno from reference.eapvml
+where date_stamp = (select max(date_stamp) from reference.eapvml)
+and mvel1 = (select max(mvel1) from reference.eapvml)</code></pre>
+<div class="knitsql-table">
+<table>
+<caption>1 records</caption>
+<thead>
+<tr class="header">
+<th align="left">date_stamp</th>
+<th align="right">permno</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td align="left">2021-11-30</td>
+<td align="right">14593</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>OK, lets get the price and return data for AAPL, and join it to the return data from our new dataset where the permno is 14593. We will then check for correlation between these returns, if they do indeed represent the same stock, the correlations should be close to one.</p>
+<pre class="sql"><code>-- Result assigned to object &quot;stock_master_aapl&quot;
+select 
+symbol
+,date_stamp
+,rtn_ari_1m 
+from access_layer.return_attributes
+where date_stamp between &#39;2015-01-31&#39;::date and &#39;2021-12-31&#39;::date 
+and symbol = &#39;AAPL&#39;
+order by 1,2</code></pre>
+<pre class="r"><code>setDT(stock_master_aapl)
+setorder(eapvml, permno, date_stamp)
+eapvml_aapl &lt;- eapvml[permno == 14593][, rtn_ari_1m_ea := (mvel1 - shift(mvel1, 1)) / shift(mvel1, 1)]
+cor_data &lt;- eapvml_aapl[stock_master_aapl, on = c(&quot;date_stamp&quot;), nomatch = 0][ , .(mom1m, rtn_ari_1m_ea, rtn_ari_1m)]
+
+library(PerformanceAnalytics)
+chart.Correlation(cor_data, histogram=TRUE, pch=1)</code></pre>
+<p><img src="/post/2023-07-07-academic-stock-data_files/figure-html/r04-1.png" width="816" /></p>
+<p>Well I think we have a match! In the plot above the largest digits are the correlations. <code>mom1m</code> is the precalculated one month return, <code>rtn_ari_1m_ea</code> is the return derived from changes in market capitalization. Both of these come from the new academic data set. <code>rtn_ari_1m</code> is the return calculated from independently collected price data (i.e. that which already exists in the stock market database).</p>
+<p>I would put money on permno 14953 being the identifier for Apple<a href="#fn2" class="footnote-ref" id="fnref2"><sup>2</sup></a>.</p>
+<p>Lastly, lets look at the turnover of portfolios defined as the top 50, 100, 500 and 1,000 stocks by market capitalisation. We will assess turnover every year. The expectation is that turnover will be higher for the smaller portfolios since it is easier for a stock to move into or out of a smaller group<a href="#fn3" class="footnote-ref" id="fnref3"><sup>3</sup></a>.</p>
+<p>If we see anything untoward here it may be an indicator of data quality issues.</p>
+<pre class="r"><code># Function for measuring portfolio turnover
+turnover &lt;- function(df, top_n) {
+  
+  unq_dates   &lt;- sort(unique(df$date_stamp))
+  start_dates &lt;- shift(unq_dates)[-1]
+  end_dates   &lt;- unq_dates[-1]
+  dat         &lt;- Sys.Date()[0]
+  res         &lt;- list()
+  
+  for (i in 1:length(end_dates)) {
+    s    &lt;- df[date_stamp == start_dates[i] &amp; mkt_cap_rank %in% 1:top_n, symbol]
+    e    &lt;- df[date_stamp == end_dates[i] &amp; mkt_cap_rank %in% 1:top_n, symbol]
+    resi &lt;- length(setdiff(s, e)) / length(s)
+    dat  &lt;- append(dat, end_dates[i])
+    res  &lt;- append(res, resi)
+  }
+  
+  return(data.frame(date_stamp = dat, turnover = unlist(res)))
+}
+
+# Create data frame with december dates including rank by mkt cap
+turnoverd &lt;- eapvml[month(date_stamp) == 12 &amp; date_stamp &gt; as.Date(&#39;1980-12-31&#39;), .(date_stamp, permno, mvel1)][, mkt_cap_rank := frankv(mvel1, order = -1), by = date_stamp]
+setnames(turnoverd, old = &quot;permno&quot;, new = &quot;symbol&quot;)
+
+# Call turnover function
+t50 &lt;- turnover(turnoverd, top_n = 50)
+t50$top_n &lt;- 50
+t100 &lt;- turnover(turnoverd, top_n = 100)
+t100$top_n &lt;- 100
+t500 &lt;- turnover(turnoverd, top_n = 500)
+t500$top_n &lt;- 500
+t1000 &lt;- turnover(turnoverd, top_n = 1000)
+t1000$top_n &lt;- 1000
+t &lt;- rbind(t50, t100, t500, t1000)
+
+ggplot(data=t, aes(x=date_stamp, y=turnover, group=1)) +
+  geom_line() +
+  facet_wrap(vars(top_n)) +
+  labs(
+    title = &quot;Portfolio turnover&quot;,
+    subtitle = &quot;Data supporting &#39;Empirical Asset Pricing via Machine Learning&#39;&quot;,
+    caption = &quot;Source: https://dachxiu.chicagobooth.edu/download/datashare.zip&quot;,
+    x = &#39;&#39;,
+    y = &#39;&#39;
+  ) +
+  cstm_theme1</code></pre>
+<p><img src="/post/2023-07-07-academic-stock-data_files/figure-html/r05-1.png" width="816" /></p>
+<p>What are we seeing here?</p>
+<ul>
+<li>Turnover is less volatile as the group is larger<br />
+</li>
+<li>Average turnover is higher for the smaller large cap groups<br />
+</li>
+<li>There was a spike in turnover when the tech bubble burst</li>
+</ul>
+<p>All in all, the analysis of portfolio turnover doesn’t raise any red flags.</p>
+</div>
+<div id="conclusion" class="section level2">
+<h2>Conclusion</h2>
+<p>I’m will continue to interrogate this data and verify some of the fundamental data points exposed in the academic dataset. That will entail back engineering balance sheet and income statement metrics from ratios such as price/book, price/earnings, etcetera (based on what I know thus far, in some cases that will require a second generation back engineering using accounting identities). I will find an overlap between the SEC data in my database and that referred to above and check alignment.</p>
+<p>More to come here…</p>
+</div>
+<div id="references" class="section level2">
+<h2>References</h2>
+<p>[1] Chen A and Zimmerman T, 2021, Open Source Cross-Sectional Asseis identified by the t Pricing, Critical Finance Review 2022. Available at SSRN: <a href="https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3604626" class="uri">https://papers.ssrn.com/sol3/papers.cfm?abstract_id=3604626</a></p>
+<p>[2] Gu S, Kelly B and Xiu D, Empirical Asset Pricing via Machine Learning, The Review of Financial Studies, Volume 33, Issue 5, May 2020, Pages 2223-2273, <a href="https://doi.org/10.1093/rfs/hhaa009" class="uri">https://doi.org/10.1093/rfs/hhaa009</a></p>
+</div>
+<div class="footnotes footnotes-end-of-document">
+<hr />
+<ol>
+<li id="fn1"><p>Note that these won’t be the same as stock returns to the extent there has been shares issued or retired. Given the infrequency of these events, market capitalisation will suffice for our analysis.<a href="#fnref1" class="footnote-back">↩︎</a></p></li>
+<li id="fn2"><p>Subsequent to this analysis, the following permno to ticker mapping resources where identified. 14953 is indeed AAPL.<br />
+<a href="https://www.ivo-welch.info/research/betas/" class="uri">https://www.ivo-welch.info/research/betas/</a><br />
+<a href="https://eml.berkeley.edu/~sdellavi/data/EarningsSearchesDec06.xls" class="uri">https://eml.berkeley.edu/~sdellavi/data/EarningsSearchesDec06.xls</a><br />
+<a href="https://www.crsp.org/files/images/release_notes/mdaz_201312.pdf" class="uri">https://www.crsp.org/files/images/release_notes/mdaz_201312.pdf</a><br />
+<a href="https://github.com/sharavsambuu/FinRL_Imitation_Learning_by_AI4Finance/blob/master/data/merged.csv" class="uri">https://github.com/sharavsambuu/FinRL_Imitation_Learning_by_AI4Finance/blob/master/data/merged.csv</a><br />
+<a href="https://www.stat.rice.edu/~dobelman/courses/482/examples/allstocks.2004.xlsx" class="uri">https://www.stat.rice.edu/~dobelman/courses/482/examples/allstocks.2004.xlsx</a><br />
+<a href="https://biopen.bi.no/bi-xmlui/bitstream/handle/11250/2625322/LTWC.xlsx?sequence=2&amp;isAllowed=y" class="uri">https://biopen.bi.no/bi-xmlui/bitstream/handle/11250/2625322/LTWC.xlsx?sequence=2&amp;isAllowed=y</a><br />
+<a href="http://www1.udel.edu/Finance/varma/CRSP%20DIRECTORY%20.xls" class="uri">http://www1.udel.edu/Finance/varma/CRSP%20DIRECTORY%20.xls</a><a href="#fnref2" class="footnote-back">↩︎</a></p></li>
+<li id="fn3"><p>The counter to this is that as the market becomes more concentrated at the top (a phenomenon much reported on <a href="https://www.morganstanley.com/ideas/concentration-risk-high-s-and-p-500-q2-2023">recently</a>), maybe we’ll see lower turnover in large caps.<a href="#fnref3" class="footnote-back">↩︎</a></p></li>
+</ol>
+</div>
