@@ -1,0 +1,31 @@
+---
+title: "Test new computer"
+author: "Brent Morrison"
+date: "2025-01-05"
+slug: test_new_computer
+categories: Data
+tags:
+- Stocks
+- Database
+description: ''
+topics: []
+---
+
+
+```{r opts, include=FALSE}
+knitr::opts_chunk$set(error=FALSE, message=FALSE, warning=FALSE, echo=TRUE, cache=TRUE, cache.lazy = FALSE, fig.height=6.375, fig.width=8.5)
+```
+
+Testing blogdown / hugo / netlify functionality on cloned repo.  
+
+## Session information 
+
+```{r r01}
+blogdown::check_site()
+```
+
+## Session information 
+
+```{r r02}
+sessionInfo()
+```
